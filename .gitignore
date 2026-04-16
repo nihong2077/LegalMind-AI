@@ -20,6 +20,9 @@ out/
 *.pem
 *.key
 
+litellm/secrets.yaml
+litellm/.env
+
 cuda-repo-wsl-ubuntu-*.deb
 
 .idea/
