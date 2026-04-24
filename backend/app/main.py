@@ -9,7 +9,9 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 from .core.config import settings
 from .core.llm_client import close_llm_client, get_llm_client
 from .core.redis_client import close_redis, init_redis, redis_health_check
-from .routers import gateway
+from .core.database import init_db, close_db
+from .core.qdrant_client import get_qdrant_client, close_qdrant_client
+from .routers import gateway, auth, cases
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -30,11 +32,22 @@ CIRCUIT_BREAKER_TRIPS = Counter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 初始化服务
     await init_redis()
+    await init_db()
     get_llm_client()
+    qdrant_client = get_qdrant_client()
+    
+    # 初始化默认集合
+    await qdrant_client.create_collection("legal_knowledge")
+    
     yield
+    
+    # 关闭服务
     await close_llm_client()
     await close_redis()
+    await close_db()
+    await close_qdrant_client()
 
 
 app = FastAPI(
@@ -103,7 +116,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+# 包含路由
 app.include_router(gateway.router)
+app.include_router(auth.router, prefix=settings.API_PREFIX)
+app.include_router(cases.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")
@@ -115,14 +131,23 @@ async def root():
 async def health_check():
     redis_status = await redis_health_check()
     llm_status = await get_llm_client().health_check()
+    qdrant_status = {"status": "healthy" if await get_qdrant_client().health_check() else "unhealthy"}
+    
     overall = "healthy"
-    if redis_status["status"] != "healthy" or llm_status["status"] != "healthy":
-        overall = "degraded" if redis_status["status"] != "unhealthy" and llm_status["status"] != "unhealthy" else "unhealthy"
+    if (redis_status["status"] != "healthy" or 
+        llm_status["status"] != "healthy" or 
+        qdrant_status["status"] != "healthy"):
+        unhealthy = (redis_status["status"] == "unhealthy" or 
+                    llm_status["status"] == "unhealthy" or 
+                    qdrant_status["status"] == "unhealthy")
+        overall = "unhealthy" if unhealthy else "degraded"
+    
     return {
         "status": overall,
         "version": "1.0.0",
         "redis": redis_status,
         "litellm": llm_status,
+        "qdrant": qdrant_status,
     }
 
 
@@ -132,3 +157,4 @@ async def metrics():
         generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+

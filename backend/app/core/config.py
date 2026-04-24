@@ -8,9 +8,12 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "LegalMind AI"
 
     REDIS_URL: str = "redis://localhost:6379/0"
+    DATABASE_URL: str = "postgresql+asyncpg://legalmind:legalmind_secure_2024@localhost:5432/legalmind"
+    QDRANT_URL: str = "http://localhost:6333"
 
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     RATE_LIMIT_MAX_REQUESTS: int = 30
     RATE_LIMIT_WINDOW_SECONDS: int = 60

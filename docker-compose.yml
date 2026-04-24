@@ -23,6 +23,40 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: legalmind-postgres
+    environment:
+      POSTGRES_DB: legalmind
+      POSTGRES_USER: legalmind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-legalmind_secure_2024}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d legalmind -U legalmind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: legalmind-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
   litellm-db:
     image: postgres:16-alpine
     container_name: legalmind-litellm-db
@@ -77,11 +111,17 @@ services:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://legalmind:${POSTGRES_PASSWORD:-legalmind_secure_2024}@postgres:5432/legalmind
+      - QDRANT_URL=http://qdrant:6333
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production-use-at-least-32-chars}
       - LITELLM_PROXY_URL=http://litellm:4000
       - LITELLM_VIRTUAL_KEY=${LITELLM_VIRTUAL_KEY}
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
       litellm:
         condition: service_healthy
@@ -93,6 +133,22 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: legalmind-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   redis_data:
+  postgres_data:
+  qdrant_data:
   litellm_db_data:
