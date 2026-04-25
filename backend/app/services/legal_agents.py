@@ -171,6 +171,43 @@ class JudgeAgent(LegalAgent):
         }
 
 
+class MediatorAgent(LegalAgent):
+    """调解员智能体"""
+    
+    def __init__(self):
+        system_prompt = """你是一名专业的法律调解员，擅长分析案件争议，提出公平合理的和解方案，促进双方达成庭外和解。
+
+请你：
+1. 综合案件事实和双方律师的意见
+2. 分析双方的核心诉求和利益点
+3. 识别可能的和解空间和妥协点
+4. 提出具体、可行的和解方案
+5. 说明和解方案的公平性和合理性
+6. 提供和解协议的主要条款建议
+
+请以中立、专业的语言输出和解方案，确保方案公平合理、切实可行。"""
+        super().__init__("调解员", "mediator", system_prompt)
+    
+    async def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        case_description = context.get("case_description", "")
+        analyst_output = context.get("analyst_output", "")
+        plaintiff_output = context.get("plaintiff_output", "")
+        defendant_output = context.get("defendant_output", "")
+        
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": f"基于以下案件事实和双方律师的意见：\n案件事实：{case_description}\n案情分析：{analyst_output}\n原告律师意见：{plaintiff_output}\n被告律师意见：{defendant_output}\n\n请作为调解员，提出公平合理的和解方案。"}
+        ]
+        
+        analysis = await self.generate_response(messages)
+        
+        return {
+            "mediator_output": analysis,
+            "agent_name": self.name,
+            "timestamp": context.get("timestamp", "")
+        }
+
+
 class LegalAgentWorkflow:
     """法律智能体工作流"""
     
@@ -179,7 +216,8 @@ class LegalAgentWorkflow:
             "analyst": CaseAnalystAgent(),
             "plaintiff_lawyer": PlaintiffLawyerAgent(),
             "defendant_lawyer": DefendantLawyerAgent(),
-            "judge": JudgeAgent()
+            "judge": JudgeAgent(),
+            "mediator": MediatorAgent()
         }
         self.graph = self._build_graph()
     
@@ -192,12 +230,14 @@ class LegalAgentWorkflow:
         graph.add_node("plaintiff_lawyer", self._run_plaintiff_lawyer)
         graph.add_node("defendant_lawyer", self._run_defendant_lawyer)
         graph.add_node("judge", self._run_judge)
+        graph.add_node("mediator", self._run_mediator)
         
         # 定义边
         graph.add_edge("analyze_case", "plaintiff_lawyer")
         graph.add_edge("plaintiff_lawyer", "defendant_lawyer")
         graph.add_edge("defendant_lawyer", "judge")
-        graph.add_edge("judge", END)
+        graph.add_edge("judge", "mediator")
+        graph.add_edge("mediator", END)
         
         # 设置入口点
         graph.set_entry_point("analyze_case")
@@ -228,16 +268,36 @@ class LegalAgentWorkflow:
         result = await agent.run(state)
         return {**state, **result}
     
+    async def _run_mediator(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """运行调解员智能体"""
+        agent = self.agents["mediator"]
+        result = await agent.run(state)
+        return {**state, **result}
+    
     async def run(self, case_description: str) -> Dict[str, Any]:
         """运行完整工作流"""
         from datetime import datetime
+        from app.services.input_validator import input_validator
+        from app.services.output_auditor import output_auditor
+        
+        # 验证输入
+        input_validator.validate_input({"case_description": case_description})
+        sanitized_input = input_validator.sanitize_input(case_description)
         
         initial_state = {
-            "case_description": case_description,
+            "case_description": sanitized_input,
             "timestamp": datetime.now().isoformat()
         }
         
         result = await self.graph.ainvoke(initial_state)
+        
+        # 审核输出
+        for key, value in result.items():
+            if isinstance(value, str) and "_output" in key:
+                audit_result = await output_auditor.audit_output(value, result)
+                result[key] = audit_result["modified_output"]
+                result[f"{key}_audit"] = audit_result
+        
         return result
 
 

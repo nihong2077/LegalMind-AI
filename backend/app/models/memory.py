@@ -9,15 +9,15 @@ class Memory(Base):
     __tablename__ = "memories"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    case_id = Column(Integer, ForeignKey("cases.id"), nullable=True)
-    memory_type = Column(String(50), default="general")  # general, case_specific, preference
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    case_id = Column(Integer, ForeignKey("cases.id"), nullable=True, index=True)
+    memory_type = Column(String(50), default="general", index=True)  # general, case_specific, preference
     content = Column(Text, nullable=False)
     metadata = Column(JSON, default=dict)
-    relevance_score = Column(Integer, default=50)  # 0-100, 用于记忆检索排序
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    relevance_score = Column(Integer, default=50, index=True)  # 0-100, 用于记忆检索排序
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     # 关系
     user = relationship("User", back_populates="memories")

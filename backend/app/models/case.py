@@ -9,16 +9,16 @@ class Case(Base):
     __tablename__ = "cases"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    title = Column(String(200), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False, index=True)
     description = Column(Text)
-    status = Column(String(50), default="draft")  # draft, in_progress, completed
-    case_type = Column(String(50))  # civil, criminal, etc.
-    complexity_score = Column(Integer, default=0)  # 0-100
+    status = Column(String(50), default="draft", index=True)  # draft, in_progress, completed
+    case_type = Column(String(50), index=True)  # civil, criminal, etc.
+    complexity_score = Column(Integer, default=0, index=True)  # 0-100
     case_data = Column(JSON, default=dict)  # 结构化案件数据
     result_summary = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     # 关系
     user = relationship("User", back_populates="cases")

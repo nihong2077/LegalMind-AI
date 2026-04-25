@@ -27,5 +27,8 @@ class Settings(BaseSettings):
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LITELLM_VIRTUAL_KEY: str = ""
 
+    # GPU
+    USE_GPU: bool = True
+
 
 settings = Settings()
