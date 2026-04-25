@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Sparkles, RotateCcw, Copy, Check } from 'lucide-react'
+import { Send, Paperclip, Sparkles, RotateCcw, Copy, Check, LogIn } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link'
 
 interface Message {
   id: string
@@ -25,8 +26,18 @@ export default function ChatInterface() {
   const [isTyping, setIsTyping] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [attachedFiles, setAttachedFiles] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [user, setUser] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // 检查用户登录状态
+    const userInfo = localStorage.getItem('user')
+    if (userInfo) {
+      setUser(JSON.parse(userInfo))
+    }
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -34,6 +45,12 @@ export default function ChatInterface() {
 
   const handleSend = async () => {
     if (!input.trim()) return
+    
+    // 检查登录状态
+    if (!user) {
+      setError('请先登录后使用AI功能')
+      return
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -44,18 +61,108 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, userMsg])
     setInput('')
     setIsTyping(true)
+    setError(null)
 
-    setTimeout(() => {
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `根据您的问题「${input}」，我为您整理了以下法律分析：\n\n根据《中华人民共和国民法典》相关规定，该问题涉及多个法律要点。建议您进一步咨询专业律师以获取针对您具体情况的详细法律意见。\n\n⚠️ 以上内容仅供参考，不构成法律建议。`,
-        timestamp: new Date(),
-        agent: '法律分析助手',
+    try {
+      const token = localStorage.getItem('token')
+      
+      // 流式请求
+      const response = await fetch('http://localhost:8000/api/v1/agents/analyze-case/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ case_description: input })
+      })
+
+      if (!response.ok) {
+        throw new Error('请求失败')
       }
-      setMessages((prev) => [...prev, aiMsg])
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('无法读取响应')
+      }
+
+      let eventData = ''
+      let currentAgent = ''
+      let agentContent = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = new TextDecoder('utf-8').decode(value)
+        eventData += chunk
+
+        // 处理事件流
+        const lines = eventData.split('\n')
+        eventData = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.substring(6)
+            if (dataStr.trim() === '') continue
+
+            try {
+              const data = JSON.parse(dataStr)
+
+              if (data.step) {
+                // 步骤更新
+                if (data.step === '案情分析') currentAgent = '案情分析师'
+                else if (data.step === '原告律师分析') currentAgent = '原告律师'
+                else if (data.step === '被告律师分析') currentAgent = '被告律师'
+                else if (data.step === '法官裁判') currentAgent = '法官'
+              }
+              
+              if (data.content) {
+                // 内容更新
+                agentContent = data.content
+                
+                // 添加智能体消息
+                const agentMsg: Message = {
+                  id: (Date.now() + Math.random()).toString(),
+                  role: 'assistant',
+                  content: agentContent,
+                  timestamp: new Date(),
+                  agent: currentAgent
+                }
+                
+                setMessages((prev) => {
+                  // 检查是否已存在该智能体的消息
+                  const existingIndex = prev.findIndex(
+                    msg => msg.role === 'assistant' && msg.agent === currentAgent
+                  )
+                  
+                  if (existingIndex >= 0) {
+                    const newMessages = [...prev]
+                    newMessages[existingIndex] = agentMsg
+                    return newMessages
+                  } else {
+                    return [...prev, agentMsg]
+                  }
+                })
+              }
+              
+              if (data.error) {
+                setError(data.error)
+                setIsTyping(false)
+              }
+              
+              if (data.success) {
+                setIsTyping(false)
+              }
+            } catch (e) {
+              console.error('解析事件数据失败:', e)
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      setError('AI 分析失败，请重试')
       setIsTyping(false)
-    }, 2000)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -81,11 +188,18 @@ export default function ChatInterface() {
   const clearChat = () => {
     setMessages([])
     setAttachedFiles([])
+    setError(null)
   }
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+        {error && (
+          <div className="p-4 bg-red-900/30 border border-red-500/30 rounded-lg text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-gold-400/20 to-gold-600/10
@@ -96,18 +210,29 @@ export default function ChatInterface() {
             <p className="text-gold-200/50 mb-8 max-w-md">
               面向民事法律场景的智能司法协作系统，为您提供专业的法律分析与建议
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
-              {suggestedQuestions.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => { setInput(q) }}
-                  className="glass-card-static p-4 text-left text-sm text-gold-200/70
-                             hover:text-gold-200 hover:border-gold-400/30 transition-all duration-300 cursor-pointer"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+            
+            {!user ? (
+              <Link 
+                href="/auth/login" 
+                className="gold-btn flex items-center gap-2 px-6 py-3"
+              >
+                <LogIn size={16} />
+                登录后使用
+              </Link>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+                {suggestedQuestions.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => { setInput(q) }}
+                    className="glass-card-static p-4 text-left text-sm text-gold-200/70
+                               hover:text-gold-200 hover:border-gold-400/30 transition-all duration-300 cursor-pointer"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -207,13 +332,14 @@ export default function ChatInterface() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入法律问题，按 Enter 发送..."
+              placeholder={user ? "输入法律问题，按 Enter 发送..." : "请登录后使用AI功能"}
               rows={1}
+              disabled={!user}
               className="input-field resize-none pr-12 min-h-[44px] max-h-32"
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!input.trim() || !user}
               className="absolute right-2 bottom-2 p-2 rounded-lg bg-gold-400 text-navy-900
                          disabled:opacity-30 disabled:cursor-not-allowed
                          hover:bg-gold-300 transition-all"

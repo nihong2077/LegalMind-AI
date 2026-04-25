@@ -11,7 +11,7 @@ from .core.llm_client import close_llm_client, get_llm_client
 from .core.redis_client import close_redis, init_redis, redis_health_check
 from .core.database import init_db, close_db
 from .core.qdrant_client import get_qdrant_client, close_qdrant_client
-from .routers import gateway, auth, cases
+from .routers import gateway, auth, cases, agents
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -120,6 +120,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(gateway.router)
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(cases.router, prefix=settings.API_PREFIX)
+app.include_router(agents.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")

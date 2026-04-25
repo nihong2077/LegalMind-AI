@@ -1,9 +1,26 @@
 'use client'
 
 import Link from 'next/link'
-import { Scale } from 'lucide-react'
+import { Scale, User, LogIn, LogOut } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 export default function Navbar() {
+  const [user, setUser] = useState<any>(null)
+  
+  useEffect(() => {
+    // 从localStorage获取用户信息
+    const userInfo = localStorage.getItem('user')
+    if (userInfo) {
+      setUser(JSON.parse(userInfo))
+    }
+  }, [])
+  
+  const handleLogout = () => {
+    localStorage.removeItem('user')
+    localStorage.removeItem('token')
+    setUser(null)
+  }
+  
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-navy-900/80 backdrop-blur-xl border-b border-gold-400/10">
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -27,9 +44,26 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-4">
-          <Link href="/chat" className="gold-btn text-sm !px-4 !py-2">
-            开始使用
-          </Link>
+          {user ? (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <User size={16} className="text-gold-400" />
+                <span className="text-sm text-gold-200">{user.username}</span>
+              </div>
+              <button 
+                onClick={handleLogout}
+                className="text-sm text-gold-200/60 hover:text-gold-200 transition-colors flex items-center gap-1"
+              >
+                <LogOut size={14} />
+                退出
+              </button>
+            </div>
+          ) : (
+            <Link href="/auth/login" className="gold-btn text-sm !px-4 !py-2 flex items-center gap-1">
+              <LogIn size={14} />
+              登录
+            </Link>
+          )}
         </div>
       </div>
     </header>

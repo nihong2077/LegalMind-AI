@@ -1,112 +1,196 @@
 'use client'
 
-import Sidebar from '@/components/Sidebar'
-import { MessageSquare, FileText, BookOpen, TrendingUp } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Plus, FileText, Clock, CheckCircle, AlertCircle, LogIn } from 'lucide-react'
 import Link from 'next/link'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 
-const stats = [
-  { label: 'AI 对话次数', value: '128', icon: MessageSquare, color: 'text-gold-400' },
-  { label: '已分析文档', value: '36', icon: FileText, color: 'text-blue-400' },
-  { label: '法律知识条目', value: '2,450', icon: BookOpen, color: 'text-emerald-400' },
-  { label: '案件处理效率', value: '+45%', icon: TrendingUp, color: 'text-purple-400' },
-]
-
-const quickActions = [
-  { title: 'AI 法律对话', desc: '向 AI 助手咨询法律问题', href: '/chat', icon: MessageSquare },
-  { title: '文档智能分析', desc: '上传合同、诉状等法律文书', href: '/documents', icon: FileText },
-  { title: '法律知识检索', desc: '搜索法律法规与判例', href: '/knowledge', icon: BookOpen },
-]
-
-const recentCases = [
-  { id: '1', title: '劳动合同纠纷 - 张某诉某科技公司', status: '分析中', time: '2 小时前' },
-  { id: '2', title: '房屋买卖合同违约 - 李某诉王某', status: '已完成', time: '昨天' },
-  { id: '3', title: '交通事故损害赔偿 - 赵某诉某保险公司', status: '待处理', time: '3 天前' },
-]
-
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
-}
-
-const item = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0 },
+interface Case {
+  id: number
+  title: string
+  description: string
+  status: string
+  case_type: string
+  complexity_score: number
+  created_at: string
+  updated_at: string
 }
 
 export default function DashboardPage() {
-  return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto p-8">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h2 className="text-2xl font-bold text-gold-200 mb-1">工作台</h2>
-          <p className="text-sm text-gold-200/40 mb-8">欢迎回来，以下是您的工作概览</p>
-        </motion.div>
+  const [user, setUser] = useState<any>(null)
+  const [cases, setCases] = useState<Case[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
-        >
-          {stats.map((s) => (
-            <motion.div key={s.label} variants={item} className="glass-card-static p-5">
-              <div className="flex items-center justify-between mb-3">
-                <s.icon size={18} className={s.color} />
-                <span className="text-2xl font-bold text-gold-200">{s.value}</span>
-              </div>
-              <p className="text-xs text-gold-200/40">{s.label}</p>
-            </motion.div>
-          ))}
-        </motion.div>
+  useEffect(() => {
+    // 检查用户登录状态
+    const userInfo = localStorage.getItem('user')
+    if (userInfo) {
+      setUser(JSON.parse(userInfo))
+      fetchCases()
+    } else {
+      setLoading(false)
+    }
+  }, [])
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <h3 className="text-lg font-semibold text-gold-200">快速操作</h3>
-            <motion.div
-              variants={container}
-              initial="hidden"
-              animate="show"
-              className="grid sm:grid-cols-3 gap-4"
-            >
-              {quickActions.map((a) => (
-                <motion.div key={a.title} variants={item}>
-                  <Link
-                    href={a.href}
-                    className="glass-card p-6 block group"
-                  >
-                    <div className="feature-glow" />
-                    <a.icon size={24} className="text-gold-400 mb-4 relative z-10" />
-                    <h4 className="font-semibold text-gold-200 mb-1 relative z-10">{a.title}</h4>
-                    <p className="text-xs text-gold-200/40 relative z-10">{a.desc}</p>
-                  </Link>
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
+  const fetchCases = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch('http://localhost:8000/api/v1/cases', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
 
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gold-200">最近案件</h3>
-            <div className="space-y-3">
-              {recentCases.map((c) => (
-                <div key={c.id} className="glass-card-static p-4">
-                  <p className="text-sm text-gold-200 mb-2 truncate">{c.title}</p>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full
-                      ${c.status === '已完成' ? 'bg-green-400/10 text-green-400' :
-                        c.status === '分析中' ? 'bg-gold-400/10 text-gold-400' :
-                        'bg-gold-200/10 text-gold-200/50'}`}>
-                      {c.status}
-                    </span>
-                    <span className="text-[10px] text-gold-200/30">{c.time}</span>
-                  </div>
-                </div>
-              ))}
+      if (!response.ok) {
+        throw new Error('获取案件列表失败')
+      }
+
+      const data = await response.json()
+      setCases(data)
+    } catch (err: any) {
+      setError('获取案件列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return <Clock size={16} className="text-blue-400" />
+      case 'in_progress':
+        return <AlertCircle size={16} className="text-yellow-400" />
+      case 'completed':
+        return <CheckCircle size={16} className="text-green-400" />
+      default:
+        return <FileText size={16} className="text-gold-400" />
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return '草稿'
+      case 'in_progress':
+        return '处理中'
+      case 'completed':
+        return '已完成'
+      default:
+        return status
+    }
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-navy-950 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,215,0,0.1),transparent_50%)"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(255,215,0,0.05),transparent_50%)"></div>
+        
+        <div className="relative z-10 w-full max-w-md p-8 bg-navy-900/80 backdrop-blur-lg rounded-2xl border border-gold-400/10 shadow-2xl text-center">
+          <div className="mb-6">
+            <div className="w-16 h-16 rounded-full bg-gold-400/20 flex items-center justify-center mx-auto mb-4">
+              <LogIn size={32} className="text-gold-400" />
             </div>
+            <h1 className="text-2xl font-bold text-gold-200 mb-2">请先登录</h1>
+            <p className="text-gold-200/60">登录后查看您的案件和工作台</p>
           </div>
+          <Link 
+            href="/auth/login" 
+            className="gold-btn inline-flex items-center gap-2"
+          >
+            <LogIn size={16} />
+            立即登录
+          </Link>
         </div>
-      </main>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-navy-950">
+      <div className="max-w-7xl mx-auto px-6 py-16">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gold-200 mb-2">工作台</h1>
+            <p className="text-gold-200/60">欢迎回来，{user.username}</p>
+          </div>
+          <Link 
+            href="/chat" 
+            className="gold-btn flex items-center gap-2"
+          >
+            <Plus size={16} />
+            新建案件
+          </Link>
+        </div>
+
+        {error && (
+          <div className="p-4 bg-red-900/30 border border-red-500/30 rounded-lg text-sm text-red-400 mb-6">
+            {error}
+          </div>
+        )}
+
+        <div className="bg-navy-900/50 border border-gold-400/10 rounded-2xl p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gold-200">我的案件</h2>
+            <span className="text-sm text-gold-200/60">共 {cases.length} 个案件</span>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="flex gap-2">
+                <span className="w-2 h-2 bg-gold-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-gold-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-gold-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          ) : cases.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="w-16 h-16 rounded-full bg-gold-400/10 flex items-center justify-center mx-auto mb-4">
+                <FileText size={32} className="text-gold-400/60" />
+              </div>
+              <h3 className="text-lg font-medium text-gold-200 mb-2">暂无案件</h3>
+              <p className="text-gold-200/60 mb-6">您还没有创建任何案件</p>
+              <Link 
+                href="/chat" 
+                className="gold-btn inline-flex items-center gap-2"
+              >
+                <Plus size={16} />
+                开始第一个案件
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <AnimatePresence>
+                {cases.map((caseItem) => (
+                  <motion.div
+                    key={caseItem.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="glass-card-static p-6 rounded-xl border border-gold-400/10 hover:border-gold-400/30 transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <h3 className="text-lg font-medium text-gold-200">{caseItem.title}</h3>
+                      <div className="flex items-center gap-2 text-sm">
+                        {getStatusIcon(caseItem.status)}
+                        <span className="text-gold-200/70">{getStatusText(caseItem.status)}</span>
+                      </div>
+                    </div>
+                    <p className="text-gold-200/60 text-sm mb-4 line-clamp-2">
+                      {caseItem.description || '无描述'}
+                    </p>
+                    <div className="flex items-center justify-between text-xs text-gold-200/40">
+                      <span>创建于 {new Date(caseItem.created_at).toLocaleDateString('zh-CN')}</span>
+                      <span>复杂度: {caseItem.complexity_score}%</span>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
