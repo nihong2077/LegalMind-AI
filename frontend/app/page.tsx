@@ -5,7 +5,7 @@ import Link from 'next/link'
 import HeroBackground from '@/components/HeroBackground'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
-import { ArrowRight, Law, MessageSquare, Gavel, BookOpen, User } from 'lucide-react'
+import { ArrowRight, Gavel, MessageSquare, BookOpen, User } from 'lucide-react'
 
 export default function Home() {
   return (
@@ -47,7 +47,7 @@ export default function Home() {
             <Link href="/complex-analysis" className="group">
               <div className="glass-card p-8 rounded-xl border border-gold-400/10 hover:border-gold-400/30 transition-all h-full text-left">
                 <div className="w-16 h-16 bg-gradient-to-br from-gold-400/20 to-gold-400/5 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <Law className="w-8 h-8 text-gold-400" />
+                  <Gavel className="w-8 h-8 text-gold-400" />
                 </div>
                 <h3 className="text-2xl font-bold text-gold-100 mb-3">
                   复杂案情分析

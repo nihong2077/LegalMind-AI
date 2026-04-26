@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowRight, Law, User, Clock, CheckCircle, AlertCircle, FileText } from 'lucide-react'
+import { ArrowRight, Gavel, User, Clock, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
@@ -28,7 +28,7 @@ export default function ComplexAnalysisPage() {
     { name: '案情分析', icon: FileText },
     { name: '原告律师', icon: User },
     { name: '被告律师', icon: User },
-    { name: '法官裁判', icon: Law },
+    { name: '法官裁判', icon: Gavel },
     { name: '调解员', icon: CheckCircle },
     { name: '生成总结', icon: FileText }
   ]
@@ -73,16 +73,30 @@ export default function ComplexAnalysisPage() {
           
           for (const line of lines) {
             if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-            result = { ...result, ...data }
-            setAnalysisResult({ ...result })
-            
-            if (data.step && data.step > currentStep) {
-              setCurrentStep(data.step)
-            }
-          } catch (e) {
-              console.error('解析失败', e)
+              try {
+                const data = JSON.parse(line.slice(6))
+                result = { ...result, ...data }
+                setAnalysisResult({ ...result })
+                
+                // 更新步骤
+                if (data.step && data.step > currentStep) {
+                  setCurrentStep(data.step)
+                } else if (data.analyst_output && currentStep < 1) {
+                  setCurrentStep(1)
+                } else if (data.plaintiff_output && currentStep < 2) {
+                  setCurrentStep(2)
+                } else if (data.defendant_output && currentStep < 3) {
+                  setCurrentStep(3)
+                } else if (data.judge_output && currentStep < 4) {
+                  setCurrentStep(4)
+                } else if (data.mediator_output && currentStep < 5) {
+                  setCurrentStep(5)
+                } else if (data.summary && currentStep < 6) {
+                  setCurrentStep(6)
+                }
+              } catch (e) {
+                console.error('解析失败', e)
+              }
             }
           }
         }
@@ -104,8 +118,8 @@ export default function ComplexAnalysisPage() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-12">
         <div className="mb-8">
           <Link href="/" className="text-gold-400 hover:text-gold-300 flex items-center gap-2 mb-6">
-          ← 返回首页
-        </Link>
+            ← 返回首页
+          </Link>
           <h1 className="text-3xl font-bold text-gold-100 mb-2">复杂案情分析</h1>
           <p className="text-gold-200/60">
             深度分析案件事实，识别法律关系，归纳争议焦点，提供专业法律分析报告
@@ -145,42 +159,42 @@ export default function ComplexAnalysisPage() {
               <h2 className="text-xl font-bold text-gold-100 mb-4">分析步骤</h2>
               <div className="space-y-3">
                 {steps.map((step, index) => (
-                <div
+                  <div
                     key={index}
                     className={`flex items-center gap-4 p-3 rounded-lg transition-all ${
-                    index < currentStep
-                      ? 'bg-green-400/10 border border-green-400/20'
-                      : index === currentStep && isAnalyzing
-                      ? 'bg-gold-400/10 border border-gold-400/20 animate-pulse'
-                      : 'bg-navy-800/30 border border-gold-400/5'
-                    }`}
-                >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    index < currentStep
-                      ? 'bg-green-400/20 text-green-400'
-                      : index === currentStep && isAnalyzing
-                      ? 'bg-gold-400/20 text-gold-400'
-                      : 'bg-navy-800/50 text-gold-200/30'
-                    }`}>
-                    {index < currentStep ? (
-                      <CheckCircle className="w-5 h-5" />
-                    ) : (
-                      <step.icon className="w-5 h-5" />
-                    )}
-                  </div>
-                    <div className="flex-1">
-                    <span className={`font-medium ${
                       index < currentStep
-                        ? 'text-green-400'
+                        ? 'bg-green-400/10 border border-green-400/20'
                         : index === currentStep && isAnalyzing
-                        ? 'text-gold-400'
-                        : 'text-gold-200/50'
+                        ? 'bg-gold-400/10 border border-gold-400/20 animate-pulse'
+                        : 'bg-navy-800/30 border border-gold-400/5'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      index < currentStep
+                        ? 'bg-green-400/20 text-green-400'
+                        : index === currentStep && isAnalyzing
+                        ? 'bg-gold-400/20 text-gold-400'
+                        : 'bg-navy-800/50 text-gold-200/30'
                     }`}>
+                      {index < currentStep ? (
+                        <CheckCircle className="w-5 h-5" />
+                      ) : (
+                        <step.icon className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <span className={`font-medium ${
+                        index < currentStep
+                          ? 'text-green-400'
+                          : index === currentStep && isAnalyzing
+                          ? 'text-gold-400'
+                          : 'text-gold-200/50'
+                      }`}>
                         {step.name}
-                    </span>
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
               </div>
             </div>
           </div>
@@ -249,7 +263,7 @@ export default function ComplexAnalysisPage() {
                       {analysisResult.judge_output && (
                         <div>
                           <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
-                            <Law className="w-5 h-5" /> 法官裁判意见
+                            <Gavel className="w-5 h-5" /> 法官裁判意见
                           </h3>
                           <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
                             {analysisResult.judge_output}
