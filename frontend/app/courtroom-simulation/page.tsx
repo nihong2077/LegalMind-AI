@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Gavel, User, Play, RotateCcw, FileText } from 'lucide-react'
+import { Gavel, User, Play, RotateCcw, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Sidebar from '@/components/Sidebar'
 
@@ -117,6 +117,33 @@ export default function CourtroomSimulationPage() {
     }
   }
 
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'plaintiff': return 'text-blue-400'
+      case 'defendant': return 'text-red-400'
+      case 'judge': return 'text-gold-400'
+      default: return 'text-gold-200'
+    }
+  }
+
+  const getRoleBgColor = (role: string) => {
+    switch (role) {
+      case 'plaintiff': return 'bg-blue-400/10 border-blue-400/20'
+      case 'defendant': return 'bg-red-400/10 border-red-400/20'
+      case 'judge': return 'bg-gold-400/10 border-gold-400/20'
+      default: return 'bg-navy-800/50 border-gold-400/10'
+    }
+  }
+
+  const getRoleAvatar = (role: string) => {
+    switch (role) {
+      case 'plaintiff': return '👨‍💼'
+      case 'defendant': return '👩‍💼'
+      case 'judge': return '👨‍⚖️'
+      default: return '👤'
+    }
+  }
+
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -171,8 +198,8 @@ export default function CourtroomSimulationPage() {
                 <h2 className="text-xl font-bold text-gold-100 mb-4">参与角色</h2>
                 <div className="space-y-4">
                   <div className="flex items-center gap-4 p-3 bg-blue-400/10 border border-blue-400/20 rounded-lg">
-                    <div className="w-10 h-10 rounded-full bg-blue-400/20 flex items-center justify-center">
-                      <User className="w-5 h-5 text-blue-400" />
+                    <div className="w-12 h-12 rounded-full bg-blue-400/20 flex items-center justify-center text-2xl">
+                      👨‍💼
                     </div>
                     <div>
                       <p className="font-medium text-blue-400">原告律师</p>
@@ -180,8 +207,8 @@ export default function CourtroomSimulationPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 p-3 bg-red-400/10 border border-red-400/20 rounded-lg">
-                    <div className="w-10 h-10 rounded-full bg-red-400/20 flex items-center justify-center">
-                      <User className="w-5 h-5 text-red-400" />
+                    <div className="w-12 h-12 rounded-full bg-red-400/20 flex items-center justify-center text-2xl">
+                      👩‍💼
                     </div>
                     <div>
                       <p className="font-medium text-red-400">被告律师</p>
@@ -189,8 +216,8 @@ export default function CourtroomSimulationPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 p-3 bg-gold-400/10 border border-gold-400/20 rounded-lg">
-                    <div className="w-10 h-10 rounded-full bg-gold-400/20 flex items-center justify-center">
-                      <Gavel className="w-5 h-5 text-gold-400" />
+                    <div className="w-12 h-12 rounded-full bg-gold-400/20 flex items-center justify-center text-2xl">
+                      👨‍⚖️
                     </div>
                     <div>
                       <p className="font-medium text-gold-400">法官</p>
@@ -203,113 +230,65 @@ export default function CourtroomSimulationPage() {
 
             {/* 法庭模拟区域 */}
             <div className="lg:col-span-2 space-y-6">
-              {/* 法官席位 */}
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10 bg-navy-900/30">
-                <div className="flex items-center justify-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-gold-400/20 flex items-center justify-center">
-                    <Gavel className="w-8 h-8 text-gold-400" />
-                  </div>
-                  <div className="text-center">
-                    <p className="font-bold text-gold-100 text-lg">法官</p>
-                    <p className="text-sm text-gold-200/60">
-                      {currentSpeaker === 'judge' ? '正在发言...' : '等待发言'}
-                    </p>
-                  </div>
+              {/* 聊天对话框 */}
+              <div className="glass-card rounded-xl border border-gold-400/10 h-[700px] flex flex-col">
+                <div className="p-4 border-b border-gold-400/10 flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-gold-400" />
+                  <h3 className="text-lg font-bold text-gold-100">法庭辩论</h3>
                 </div>
-              </div>
-
-              {/* 辩论区域 */}
-              <div className="grid grid-cols-2 gap-6">
-                <div className={`glass-card p-6 rounded-xl border ${currentSpeaker === 'plaintiff' ? 'border-blue-400/50 bg-blue-400/10' : 'border-blue-400/20 bg-navy-800/30'} transition-all`}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-blue-400/20 flex items-center justify-center">
-                      <User className="w-6 h-6 text-blue-400" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-400">原告律师</p>
-                      <p className="text-sm text-gold-200/60">
-                        {currentSpeaker === 'plaintiff' ? '正在发言...' : '等待发言'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`glass-card p-6 rounded-xl border ${currentSpeaker === 'defendant' ? 'border-red-400/50 bg-red-400/10' : 'border-red-400/20 bg-navy-800/30'} transition-all`}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-red-400/20 flex items-center justify-center">
-                      <User className="w-6 h-6 text-red-400" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-red-400">被告律师</p>
-                      <p className="text-sm text-gold-200/60">
-                        {currentSpeaker === 'defendant' ? '正在发言...' : '等待发言'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 消息记录 */}
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10">
-                <h3 className="text-lg font-bold text-gold-100 flex items-center gap-2 mb-4">
-                  <FileText className="w-5 h-5" /> 庭审记录
-                </h3>
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
                   <AnimatePresence>
                     {messages.map((message) => (
                       <motion.div
                         key={message.id}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className={`p-4 rounded-lg border ${
-                          message.role === 'plaintiff'
-                            ? 'bg-blue-400/10 border-blue-400/20'
-                            : message.role === 'defendant'
-                            ? 'bg-red-400/10 border-red-400/20'
-                            : 'bg-gold-400/10 border-gold-400/20'
+                        transition={{ duration: 0.3 }}
+                        className={`flex items-start gap-4 ${
+                          message.role === 'plaintiff' ? 'justify-start' : 
+                          message.role === 'defendant' ? 'justify-start' : 'justify-center'
                         }`}
                       >
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            message.role === 'plaintiff'
-                              ? 'bg-blue-400/20 text-blue-400'
-                              : message.role === 'defendant'
-                              ? 'bg-red-400/20 text-red-400'
-                              : 'bg-gold-400/20 text-gold-400'
-                          }`}>
-                            {message.role === 'judge' ? (
-                              <Gavel className="w-4 h-4" />
-                            ) : (
-                              <User className="w-4 h-4" />
-                            )}
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${getRoleBgColor(message.role)}`}>
+                          {getRoleAvatar(message.role)}
+                        </div>
+                        <div className={`max-w-[70%] ${message.role === 'judge' ? 'text-center' : ''}`}>
+                          <div className={`font-medium ${getRoleColor(message.role)} mb-1`}>
+                            {getRoleName(message.role)}
                           </div>
-                          <div className="flex-1">
-                            <span className={`font-bold ${
-                              message.role === 'plaintiff'
-                                ? 'text-blue-400'
-                                : message.role === 'defendant'
-                                ? 'text-red-400'
-                                : 'text-gold-400'
-                            }`}>
-                              {getRoleName(message.role)}
-                            </span>
-                            <span className="text-xs text-gold-200/40 ml-2">
-                              {message.timestamp.toLocaleTimeString()}
-                            </span>
+                          <div className={`p-4 rounded-lg ${getRoleBgColor(message.role)}`}>
+                            <p className="text-gold-200/90 whitespace-pre-wrap">
+                              {message.content}
+                            </p>
+                          </div>
+                          <div className="text-xs text-gold-200/40 mt-1">
+                            {message.timestamp.toLocaleTimeString()}
                           </div>
                         </div>
-                        <p className="text-gold-200/80 whitespace-pre-wrap pl-11">
-                          {message.content}
-                        </p>
                       </motion.div>
                     ))}
                   </AnimatePresence>
                   
                   {messages.length === 0 && !isSimulating && (
-                    <div className="flex flex-col items-center justify-center h-48 text-center">
-                      <Gavel className="w-16 h-16 text-gold-400/30 mb-4" />
-                      <p className="text-gold-200/60">点击开始模拟，观看法庭辩论</p>
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <MessageSquare className="w-20 h-20 text-gold-400/30 mb-6" />
+                      <h3 className="text-xl font-bold text-gold-100 mb-2">准备开始</h3>
+                      <p className="text-gold-200/60 max-w-md">
+                        输入案件描述并点击"开始模拟"按钮，观看原告和被告律师的辩论过程
+                      </p>
                     </div>
+                  )}
+                  
+                  {isSimulating && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex items-center justify-center gap-2"
+                    >
+                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" />
+                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                    </motion.div>
                   )}
                   
                   <div ref={messagesEndRef} />
