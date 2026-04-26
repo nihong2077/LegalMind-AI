@@ -46,8 +46,15 @@ export default function RegisterPage() {
         try {
           const errorData = await response.json()
           console.log('注册失败:', errorData)
-          errorMessage = errorData.detail || `请求失败: ${response.status}`
-        } catch {
+          if (errorData.detail) {
+            errorMessage = errorData.detail
+          } else if (errorData.error) {
+            errorMessage = errorData.error
+          } else {
+            errorMessage = `请求失败: ${response.status} ${response.statusText}`
+          }
+        } catch (e) {
+          console.error('解析错误响应失败:', e)
           errorMessage = `请求失败: ${response.status} ${response.statusText}`
         }
         throw new Error(errorMessage)
