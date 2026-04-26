@@ -12,6 +12,7 @@ from .core.redis_client import close_redis, init_redis, redis_health_check
 from .core.database import init_db, close_db
 from .core.qdrant_client import get_qdrant_client, close_qdrant_client
 from .routers import gateway, auth, cases, agents, voice, evaluation
+from .models import User, Case, Memory
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
