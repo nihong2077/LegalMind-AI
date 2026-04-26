@@ -2,8 +2,6 @@ from typing import Optional, Dict, Any
 import asyncio
 import tempfile
 import os
-from faster_whisper import WhisperModel
-from cosyvoice.cli.cosyvoice import CosyVoice
 from app.core.config import settings
 
 class VoiceService:
@@ -14,20 +12,28 @@ class VoiceService:
 
     def _init_models(self):
         try:
-            # 初始化Whisper模型
+            # 尝试初始化Whisper模型
+            from faster_whisper import WhisperModel
             self.whisper_model = WhisperModel(
                 "small",
                 device="cuda" if settings.USE_GPU else "cpu",
                 compute_type="float16" if settings.USE_GPU else "int8"
             )
-            
-            # 初始化CosyVoice模型
+        except Exception as e:
+            print(f"Whisper模型初始化失败: {e}")
+        
+        try:
+            # 尝试初始化CosyVoice模型
+            from cosyvoice.cli.cosyvoice import CosyVoice
             self.cosyvoice_model = CosyVoice()
         except Exception as e:
-            print(f"语音模型初始化失败: {e}")
+            print(f"CosyVoice模型初始化失败: {e}")
 
     async def transcribe_audio(self, audio_file: str) -> str:
         """使用Whisper模型转录音频"""
+        if not self.whisper_model:
+            return "语音转录服务不可用"
+        
         try:
             segments, info = self.whisper_model.transcribe(
                 audio_file,
@@ -43,6 +49,9 @@ class VoiceService:
 
     async def text_to_speech(self, text: str, output_file: str) -> bool:
         """使用CosyVoice将文本转换为语音"""
+        if not self.cosyvoice_model:
+            return False
+        
         try:
             self.cosyvoice_model.inference(
                 text=text,
@@ -68,6 +77,9 @@ class VoiceService:
 
     async def generate_speech(self, text: str) -> Optional[bytes]:
         """生成语音并返回字节数据"""
+        if not self.cosyvoice_model:
+            return None
+        
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_output_path = temp_file.name
         

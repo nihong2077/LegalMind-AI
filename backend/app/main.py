@@ -33,21 +33,50 @@ CIRCUIT_BREAKER_TRIPS = Counter(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 初始化服务
-    await init_redis()
-    await init_db()
-    get_llm_client()
-    qdrant_client = get_qdrant_client()
+    try:
+        await init_redis()
+    except Exception as e:
+        print(f"Redis初始化失败: {e}")
     
-    # 初始化默认集合
-    await qdrant_client.create_collection("legal_knowledge")
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"数据库初始化失败: {e}")
+    
+    try:
+        get_llm_client()
+    except Exception as e:
+        print(f"LLM客户端初始化失败: {e}")
+    
+    try:
+        qdrant_client = get_qdrant_client()
+        # 初始化默认集合
+        await qdrant_client.create_collection("legal_knowledge")
+    except Exception as e:
+        print(f"Qdrant初始化失败: {e}")
     
     yield
     
     # 关闭服务
-    await close_llm_client()
-    await close_redis()
-    await close_db()
-    await close_qdrant_client()
+    try:
+        await close_llm_client()
+    except Exception as e:
+        print(f"关闭LLM客户端失败: {e}")
+    
+    try:
+        await close_redis()
+    except Exception as e:
+        print(f"关闭Redis失败: {e}")
+    
+    try:
+        await close_db()
+    except Exception as e:
+        print(f"关闭数据库失败: {e}")
+    
+    try:
+        await close_qdrant_client()
+    except Exception as e:
+        print(f"关闭Qdrant失败: {e}")
 
 
 app = FastAPI(

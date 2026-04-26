@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import relationship
 from ..core.database import Base
 
@@ -13,7 +13,7 @@ class Memory(Base):
     case_id = Column(Integer, ForeignKey("cases.id"), nullable=True, index=True)
     memory_type = Column(String(50), default="general", index=True)  # general, case_specific, preference
     content = Column(Text, nullable=False)
-    metadata = Column(JSON, default=dict)
+    memory_metadata = Column(JSON, default=dict)
     relevance_score = Column(Integer, default=50, index=True)  # 0-100, 用于记忆检索排序
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
