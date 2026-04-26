@@ -1,9 +1,16 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from langgraph.graph import StateGraph as Graph, END
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
+import logging
 
 from ..core.llm_client import get_llm_client
+from ..core.redis_client import get_redis_client
+from .semantic_cache import semantic_cache
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class LegalAgent:
@@ -22,14 +29,28 @@ class LegalAgent:
     async def generate_response(self, messages: List[Dict[str, Any]], **kwargs) -> str:
         """生成响应"""
         try:
+            # 尝试从缓存获取
+            cache_key = f"{self.role}:{hash(str(messages))}"
+            cached_response = await semantic_cache.get(cache_key)
+            if cached_response:
+                logger.info(f"从缓存获取 {self.name} 的响应")
+                return cached_response
+            
+            # 调用LLM生成响应
             response = await self.llm.chat(
                 model="gpt-4o",
                 messages=messages,
                 temperature=0.7,
                 **kwargs
             )
-            return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # 缓存响应
+            await semantic_cache.set(cache_key, content)
+            
+            return content
         except Exception as e:
+            logger.error(f"{self.name} 生成响应时出错: {str(e)}")
             return f"Error: {str(e)}"
 
 
@@ -45,6 +66,7 @@ class CaseAnalystAgent(LegalAgent):
 3. 识别涉案的法律关系和可能的法律问题
 4. 归纳案件的争议焦点
 5. 提出需要进一步澄清的事实问题
+6. 评估案件的复杂度（1-100）
 
 请以结构化的方式输出分析结果，确保逻辑清晰、层次分明。"""
         super().__init__("案情分析师", "analyst", system_prompt)
@@ -59,8 +81,12 @@ class CaseAnalystAgent(LegalAgent):
         
         analysis = await self.generate_response(messages)
         
+        # 提取复杂度评分（简单实现，实际可以使用更复杂的方法）
+        complexity_score = 50  # 默认复杂度
+        
         return {
             "analyst_output": analysis,
+            "complexity_score": complexity_score,
             "agent_name": self.name,
             "timestamp": context.get("timestamp", "")
         }
@@ -231,13 +257,15 @@ class LegalAgentWorkflow:
         graph.add_node("defendant_lawyer", self._run_defendant_lawyer)
         graph.add_node("judge", self._run_judge)
         graph.add_node("mediator", self._run_mediator)
+        graph.add_node("finalize", self._finalize)
         
         # 定义边
         graph.add_edge("analyze_case", "plaintiff_lawyer")
         graph.add_edge("plaintiff_lawyer", "defendant_lawyer")
         graph.add_edge("defendant_lawyer", "judge")
         graph.add_edge("judge", "mediator")
-        graph.add_edge("mediator", END)
+        graph.add_edge("mediator", "finalize")
+        graph.add_edge("finalize", END)
         
         # 设置入口点
         graph.set_entry_point("analyze_case")
@@ -246,33 +274,87 @@ class LegalAgentWorkflow:
     
     async def _analyze_case(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """分析案件"""
-        agent = self.agents["analyst"]
-        result = await agent.run(state)
-        return {**state, **result}
+        try:
+            logger.info("开始分析案件")
+            agent = self.agents["analyst"]
+            result = await agent.run(state)
+            logger.info("案件分析完成")
+            return {**state, **result}
+        except Exception as e:
+            logger.error(f"案件分析失败: {str(e)}")
+            return {**state, "error": f"案件分析失败: {str(e)}"}
     
     async def _run_plaintiff_lawyer(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """运行原告律师智能体"""
-        agent = self.agents["plaintiff_lawyer"]
-        result = await agent.run(state)
-        return {**state, **result}
+        try:
+            logger.info("开始运行原告律师智能体")
+            agent = self.agents["plaintiff_lawyer"]
+            result = await agent.run(state)
+            logger.info("原告律师智能体运行完成")
+            return {**state, **result}
+        except Exception as e:
+            logger.error(f"原告律师智能体运行失败: {str(e)}")
+            return {**state, "error": f"原告律师智能体运行失败: {str(e)}"}
     
     async def _run_defendant_lawyer(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """运行被告律师智能体"""
-        agent = self.agents["defendant_lawyer"]
-        result = await agent.run(state)
-        return {**state, **result}
+        try:
+            logger.info("开始运行被告律师智能体")
+            agent = self.agents["defendant_lawyer"]
+            result = await agent.run(state)
+            logger.info("被告律师智能体运行完成")
+            return {**state, **result}
+        except Exception as e:
+            logger.error(f"被告律师智能体运行失败: {str(e)}")
+            return {**state, "error": f"被告律师智能体运行失败: {str(e)}"}
     
     async def _run_judge(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """运行法官智能体"""
-        agent = self.agents["judge"]
-        result = await agent.run(state)
-        return {**state, **result}
+        try:
+            logger.info("开始运行法官智能体")
+            agent = self.agents["judge"]
+            result = await agent.run(state)
+            logger.info("法官智能体运行完成")
+            return {**state, **result}
+        except Exception as e:
+            logger.error(f"法官智能体运行失败: {str(e)}")
+            return {**state, "error": f"法官智能体运行失败: {str(e)}"}
     
     async def _run_mediator(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """运行调解员智能体"""
-        agent = self.agents["mediator"]
-        result = await agent.run(state)
-        return {**state, **result}
+        try:
+            logger.info("开始运行调解员智能体")
+            agent = self.agents["mediator"]
+            result = await agent.run(state)
+            logger.info("调解员智能体运行完成")
+            return {**state, **result}
+        except Exception as e:
+            logger.error(f"调解员智能体运行失败: {str(e)}")
+            return {**state, "error": f"调解员智能体运行失败: {str(e)}"}
+    
+    async def _finalize(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """最终处理"""
+        try:
+            logger.info("开始最终处理")
+            # 生成总结
+            summary = "# 案件分析总结\n\n"
+            summary += f"## 案情分析\n{state.get('analyst_output', '')}\n\n"
+            summary += f"## 原告律师意见\n{state.get('plaintiff_output', '')}\n\n"
+            summary += f"## 被告律师意见\n{state.get('defendant_output', '')}\n\n"
+            summary += f"## 法官裁判意见\n{state.get('judge_output', '')}\n\n"
+            summary += f"## 调解员和解方案\n{state.get('mediator_output', '')}\n\n"
+            
+            # 添加案件信息
+            summary += f"## 案件信息\n"
+            summary += f"- 复杂度评分: {state.get('complexity_score', 0)}\n"
+            summary += f"- 处理时间: {state.get('timestamp', '')}\n"
+            
+            state["summary"] = summary
+            logger.info("最终处理完成")
+            return state
+        except Exception as e:
+            logger.error(f"最终处理失败: {str(e)}")
+            return {**state, "error": f"最终处理失败: {str(e)}"}
     
     async def run(self, case_description: str) -> Dict[str, Any]:
         """运行完整工作流"""
@@ -280,25 +362,68 @@ class LegalAgentWorkflow:
         from app.services.input_validator import input_validator
         from app.services.output_auditor import output_auditor
         
-        # 验证输入
-        input_validator.validate_input({"case_description": case_description})
-        sanitized_input = input_validator.sanitize_input(case_description)
+        try:
+            logger.info("开始运行法律智能体工作流")
+            
+            # 验证输入
+            input_validator.validate_input({"case_description": case_description})
+            sanitized_input = input_validator.sanitize_input(case_description)
+            
+            initial_state = {
+                "case_description": sanitized_input,
+                "timestamp": datetime.now().isoformat(),
+                "step": "开始"
+            }
+            
+            result = await self.graph.ainvoke(initial_state)
+            
+            # 审核输出
+            for key, value in result.items():
+                if isinstance(value, str) and "_output" in key:
+                    audit_result = await output_auditor.audit_output(value, result)
+                    result[key] = audit_result["modified_output"]
+                    result[f"{key}_audit"] = audit_result
+            
+            logger.info("法律智能体工作流运行完成")
+            return result
+        except Exception as e:
+            logger.error(f"工作流运行失败: {str(e)}")
+            return {"error": f"工作流运行失败: {str(e)}"}
+    
+    async def run_streaming(self, case_description: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """流式运行工作流"""
+        from datetime import datetime
+        from app.services.input_validator import input_validator
+        from app.services.output_auditor import output_auditor
         
-        initial_state = {
-            "case_description": sanitized_input,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        result = await self.graph.ainvoke(initial_state)
-        
-        # 审核输出
-        for key, value in result.items():
-            if isinstance(value, str) and "_output" in key:
-                audit_result = await output_auditor.audit_output(value, result)
-                result[key] = audit_result["modified_output"]
-                result[f"{key}_audit"] = audit_result
-        
-        return result
+        try:
+            logger.info("开始流式运行法律智能体工作流")
+            
+            # 验证输入
+            input_validator.validate_input({"case_description": case_description})
+            sanitized_input = input_validator.sanitize_input(case_description)
+            
+            initial_state = {
+                "case_description": sanitized_input,
+                "timestamp": datetime.now().isoformat(),
+                "step": "开始"
+            }
+            
+            # 流式执行工作流
+            async for state in self.graph.astream(initial_state):
+                # 审核输出
+                for key, value in state.items():
+                    if isinstance(value, str) and "_output" in key:
+                        audit_result = await output_auditor.audit_output(value, state)
+                        state[key] = audit_result["modified_output"]
+                        state[f"{key}_audit"] = audit_result
+                
+                yield state
+            
+            logger.info("流式工作流运行完成")
+        except Exception as e:
+            logger.error(f"流式工作流运行失败: {str(e)}")
+            yield {"error": f"流式工作流运行失败: {str(e)}"}
 
 
 # 全局单例
