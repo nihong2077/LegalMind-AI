@@ -497,51 +497,69 @@ class LegalAgentWorkflow:
             
             await asyncio.sleep(1)
             
-            # 第二轮辩论 - 原告
-            yield {
-                "role": "judge",
-                "content": "现在进行法庭辩论。请原告律师针对被告的答辩进行回应。"
-            }
+            # 多轮辩论，最多5轮
+            max_rounds = 5
+            current_round = 1
+            last_plaintiff_response = plaintiff_result["plaintiff_output"]
+            last_defendant_response = defendant_result["defendant_output"]
             
-            await asyncio.sleep(0.5)
-            
-            plaintiff_rebuttal = await plaintiff_agent.generate_response([
-                {"role": "system", "content": """你是一名专业的原告律师。请针对被告律师的答辩进行回应，进一步阐述原告的立场和理由，反驳被告的观点。"""},
-                {"role": "user", "content": f"案件事实：{sanitized_input}\n被告律师答辩：{defendant_result['defendant_output']}\n\n请针对被告的答辩进行回应。"}
-            ])
-            
-            yield {
-                "role": "plaintiff",
-                "content": plaintiff_rebuttal
-            }
-            
-            await asyncio.sleep(1)
-            
-            # 第二轮辩论 - 被告
-            yield {
-                "role": "judge",
-                "content": "现在请被告律师针对原告的回应进行答辩。"
-            }
-            
-            await asyncio.sleep(0.5)
-            
-            defendant_rebuttal = await defendant_agent.generate_response([
-                {"role": "system", "content": """你是一名专业的被告律师。请针对原告律师的回应进行答辩，进一步阐述被告的立场和理由，反驳原告的观点。"""},
-                {"role": "user", "content": f"案件事实：{sanitized_input}\n原告律师回应：{plaintiff_rebuttal}\n\n请针对原告的回应进行答辩。"}
-            ])
-            
-            yield {
-                "role": "defendant",
-                "content": defendant_rebuttal
-            }
-            
-            await asyncio.sleep(1)
+            while current_round < max_rounds:
+                # 原告回应
+                yield {
+                    "role": "judge",
+                    "content": f"现在进行第{current_round + 1}轮辩论。请原告律师针对被告的答辩进行回应。"
+                }
+                
+                await asyncio.sleep(0.5)
+                
+                plaintiff_rebuttal = await plaintiff_agent.generate_response([
+                    {"role": "system", "content": """你是一名专业的原告律师。请针对被告律师的答辩进行回应，进一步阐述原告的立场和理由，反驳被告的观点。"""},
+                    {"role": "user", "content": f"案件事实：{sanitized_input}\n被告律师答辩：{last_defendant_response}\n\n请针对被告的答辩进行回应。"}
+                ])
+                
+                yield {
+                    "role": "plaintiff",
+                    "content": plaintiff_rebuttal
+                }
+                
+                await asyncio.sleep(1)
+                
+                # 被告回应
+                yield {
+                    "role": "judge",
+                    "content": f"现在请被告律师针对原告的回应进行答辩。"
+                }
+                
+                await asyncio.sleep(0.5)
+                
+                defendant_rebuttal = await defendant_agent.generate_response([
+                    {"role": "system", "content": """你是一名专业的被告律师。请针对原告律师的回应进行答辩，进一步阐述被告的立场和理由，反驳原告的观点。"""},
+                    {"role": "user", "content": f"案件事实：{sanitized_input}\n原告律师回应：{plaintiff_rebuttal}\n\n请针对原告的回应进行答辩。"}
+                ])
+                
+                yield {
+                    "role": "defendant",
+                    "content": defendant_rebuttal
+                }
+                
+                await asyncio.sleep(1)
+                
+                # 更新最后回应和轮数
+                last_plaintiff_response = plaintiff_rebuttal
+                last_defendant_response = defendant_rebuttal
+                current_round += 1
             
             # 法官总结
-            yield {
-                "role": "judge",
-                "content": "法庭辩论结束。现在由本庭对本案进行总结并作出裁判意见。"
-            }
+            if current_round >= max_rounds:
+                yield {
+                    "role": "judge",
+                    "content": f"鉴于本案辩论已进行{current_round}轮，根据程序规定，法庭辩论结束。现在由本庭对本案进行总结并作出裁判意见。"
+                }
+            else:
+                yield {
+                    "role": "judge",
+                    "content": "法庭辩论结束。现在由本庭对本案进行总结并作出裁判意见。"
+                }
             
             await asyncio.sleep(0.5)
             
