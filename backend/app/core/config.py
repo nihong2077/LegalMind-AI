@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "LegalMind AI"
 
     REDIS_URL: str = "redis://localhost:6379/0"
-    DATABASE_URL: str = "postgresql+asyncpg://legalmind:legalmind_secure_2024@localhost:5432/legalmind"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./legalmind.db"
     QDRANT_URL: str = "http://localhost:6333"
 
     JWT_SECRET_KEY: str = "change-me-in-production"
@@ -26,6 +26,11 @@ class Settings(BaseSettings):
 
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LITELLM_VIRTUAL_KEY: str = ""
+    LITELLM_MASTER_KEY: str = ""
+    LITELLM_DB_PASSWORD: str = ""
+    VLLM_API_KEY: str = ""
+    DEEPSEEK_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
 
     # GPU
     USE_GPU: bool = True
