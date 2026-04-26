@@ -30,6 +30,7 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
+      console.log('开始注册请求:', formData)
       const response = await fetch('http://localhost:8000/api/v1/auth/register', {
         method: 'POST',
         headers: {
@@ -38,17 +39,23 @@ export default function RegisterPage() {
         body: JSON.stringify(formData)
       })
 
+      console.log('注册请求响应:', response)
+      
       if (!response.ok) {
         const errorData = await response.json()
+        console.log('注册失败:', errorData)
         throw new Error(errorData.detail || '注册失败')
       }
 
+      const data = await response.json()
+      console.log('注册成功:', data)
       setSuccess('注册成功，请登录')
       // 3秒后跳转到登录页面
       setTimeout(() => {
         window.location.href = '/auth/login'
       }, 3000)
     } catch (err: any) {
+      console.error('注册错误:', err)
       setError(err.message || '注册失败')
     } finally {
       setLoading(false)
