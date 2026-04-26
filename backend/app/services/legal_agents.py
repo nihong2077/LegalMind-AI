@@ -544,6 +544,28 @@ class LegalAgentWorkflow:
                 
                 await asyncio.sleep(1)
                 
+                # 法官决定是否继续辩论
+                judge_agent = self.agents["judge"]
+                continue_debate = await judge_agent.generate_response([
+                    {"role": "system", "content": """你是一名公正的法官。在每轮辩论结束后，你需要决定是否继续进行下一轮辩论。请基于以下因素做出决定：1. 双方是否还有新的观点需要阐述 2. 案件的复杂程度 3. 已经进行的辩论轮数 4. 程序效率。如果决定继续，请回复'继续'；如果决定结束，请回复'结束'。"""},
+                    {"role": "user", "content": f"案件事实：{sanitized_input}\n当前辩论轮数：{current_round}\n原告最新回应：{plaintiff_rebuttal}\n被告最新回应：{defendant_rebuttal}\n\n请决定是否继续进行下一轮辩论，回复'继续'或'结束'。"}
+                ])
+                
+                # 分析法官的决定
+                if '继续' in continue_debate:
+                    yield {
+                        "role": "judge",
+                        "content": f"本庭认为双方还有新的观点需要阐述，决定继续进行第{current_round + 2}轮辩论。"
+                    }
+                    await asyncio.sleep(0.5)
+                else:
+                    yield {
+                        "role": "judge",
+                        "content": "本庭认为双方已充分阐述各自观点，辩论内容已较为充分，决定结束法庭辩论。"
+                    }
+                    await asyncio.sleep(0.5)
+                    break
+                
                 # 更新最后回应和轮数
                 last_plaintiff_response = plaintiff_rebuttal
                 last_defendant_response = defendant_rebuttal
