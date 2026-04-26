@@ -31,7 +31,7 @@ export default function RegisterPage() {
 
     try {
       console.log('开始注册请求:', formData)
-      const response = await fetch('http://localhost:8000/api/v1/auth/register', {
+      const response = await fetch('http://0.0.0.0:8000/api/v1/auth/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
