@@ -426,8 +426,187 @@ class LegalAgentWorkflow:
             yield {"error": f"流式工作流运行失败: {str(e)}"}
 
 
+    async def run_courtroom_simulation(self, case_description: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """运行法庭模拟"""
+        from datetime import datetime
+        from app.services.input_validator import input_validator
+        from app.services.output_auditor import output_auditor
+        import asyncio
+        
+        try:
+            logger.info("开始运行法庭模拟")
+            
+            # 验证输入
+            input_validator.validate_input({"case_description": case_description})
+            sanitized_input = input_validator.sanitize_input(case_description)
+            
+            # 首先进行案情分析
+            analyst_agent = self.agents["analyst"]
+            analyst_result = await analyst_agent.run({
+                "case_description": sanitized_input,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            yield {
+                "role": "judge",
+                "content": f"现在开庭审理本案。首先，请允许我了解一下基本案情：\n\n{analyst_result['analyst_output']}"
+            }
+            
+            await asyncio.sleep(1)  # 模拟延迟
+            
+            # 原告律师发言
+            yield {
+                "role": "judge",
+                "content": "现在请原告律师陈述诉讼请求和事实理由。"
+            }
+            
+            await asyncio.sleep(0.5)
+            
+            plaintiff_agent = self.agents["plaintiff_lawyer"]
+            plaintiff_result = await plaintiff_agent.run({
+                "case_description": sanitized_input,
+                "analyst_output": analyst_result["analyst_output"]
+            })
+            
+            yield {
+                "role": "plaintiff",
+                "content": plaintiff_result["plaintiff_output"]
+            }
+            
+            await asyncio.sleep(1)
+            
+            # 被告律师发言
+            yield {
+                "role": "judge",
+                "content": "现在请被告律师进行答辩。"
+            }
+            
+            await asyncio.sleep(0.5)
+            
+            defendant_agent = self.agents["defendant_lawyer"]
+            defendant_result = await defendant_agent.run({
+                "case_description": sanitized_input,
+                "analyst_output": analyst_result["analyst_output"],
+                "plaintiff_output": plaintiff_result["plaintiff_output"]
+            })
+            
+            yield {
+                "role": "defendant",
+                "content": defendant_result["defendant_output"]
+            }
+            
+            await asyncio.sleep(1)
+            
+            # 第二轮辩论 - 原告
+            yield {
+                "role": "judge",
+                "content": "现在进行法庭辩论。请原告律师针对被告的答辩进行回应。"
+            }
+            
+            await asyncio.sleep(0.5)
+            
+            plaintiff_rebuttal = await plaintiff_agent.generate_response([
+                {"role": "system", "content": """你是一名专业的原告律师。请针对被告律师的答辩进行回应，进一步阐述原告的立场和理由，反驳被告的观点。"""},
+                {"role": "user", "content": f"案件事实：{sanitized_input}\n被告律师答辩：{defendant_result['defendant_output']}\n\n请针对被告的答辩进行回应。"}
+            ])
+            
+            yield {
+                "role": "plaintiff",
+                "content": plaintiff_rebuttal
+            }
+            
+            await asyncio.sleep(1)
+            
+            # 第二轮辩论 - 被告
+            yield {
+                "role": "judge",
+                "content": "现在请被告律师针对原告的回应进行答辩。"
+            }
+            
+            await asyncio.sleep(0.5)
+            
+            defendant_rebuttal = await defendant_agent.generate_response([
+                {"role": "system", "content": """你是一名专业的被告律师。请针对原告律师的回应进行答辩，进一步阐述被告的立场和理由，反驳原告的观点。"""},
+                {"role": "user", "content": f"案件事实：{sanitized_input}\n原告律师回应：{plaintiff_rebuttal}\n\n请针对原告的回应进行答辩。"}
+            ])
+            
+            yield {
+                "role": "defendant",
+                "content": defendant_rebuttal
+            }
+            
+            await asyncio.sleep(1)
+            
+            # 法官总结
+            yield {
+                "role": "judge",
+                "content": "法庭辩论结束。现在由本庭对本案进行总结并作出裁判意见。"
+            }
+            
+            await asyncio.sleep(0.5)
+            
+            judge_agent = self.agents["judge"]
+            judge_result = await judge_agent.run({
+                "case_description": sanitized_input,
+                "analyst_output": analyst_result["analyst_output"],
+                "plaintiff_output": plaintiff_result["plaintiff_output"],
+                "defendant_output": defendant_result["defendant_output"]
+            })
+            
+            yield {
+                "role": "judge",
+                "content": judge_result["judge_output"]
+            }
+            
+            logger.info("法庭模拟完成")
+        except Exception as e:
+            logger.error(f"法庭模拟失败: {str(e)}")
+            yield {
+                "role": "judge",
+                "content": f"法庭模拟过程中出现错误：{str(e)}"
+            }
+
+
+class SimpleQA:
+    """简单问答"""
+    
+    def __init__(self):
+        self.llm = get_llm_client()
+    
+    async def answer(self, question: str) -> str:
+        """回答简单法律问题"""
+        try:
+            system_prompt = """你是一名专业的法律咨询助手，擅长回答简单的法律问题，提供基础的法律建议和信息。
+
+请你：
+1. 准确理解用户的法律问题
+2. 提供准确、易懂的法律解释和建议
+3. 引用相关的法律条文和法规
+4. 说明可能的法律后果和应对建议
+5. 建议用户在必要时咨询专业律师
+
+请用通俗易懂的语言回答，避免过于专业的法律术语，必要时进行解释。"""
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}
+            ]
+            
+            response = await self.llm.chat(
+                model="gpt-4o",
+                messages=messages,
+                temperature=0.7
+            )
+            
+            return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except Exception as e:
+            logger.error(f"简单问答失败: {str(e)}")
+            return f"抱歉，我无法回答这个问题。错误信息：{str(e)}"
+
+
 # 全局单例
 _legal_agent_workflow: Optional[LegalAgentWorkflow] = None
+_simple_qa: Optional[SimpleQA] = None
 
 
 def get_legal_agent_workflow() -> LegalAgentWorkflow:
@@ -436,3 +615,11 @@ def get_legal_agent_workflow() -> LegalAgentWorkflow:
     if _legal_agent_workflow is None:
         _legal_agent_workflow = LegalAgentWorkflow()
     return _legal_agent_workflow
+
+
+def get_simple_qa() -> SimpleQA:
+    """获取简单问答实例"""
+    global _simple_qa
+    if _simple_qa is None:
+        _simple_qa = SimpleQA()
+    return _simple_qa
