@@ -123,18 +123,23 @@ export default function ComplexAnalysisPage() {
           <div className="grid lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
             {/* 输入区域 */}
             <div className="space-y-6">
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6 }}
+                className="glass-card p-6 rounded-xl border border-gold-400/10"
+              >
                 <h2 className="text-xl font-bold text-gold-100 mb-4">案件描述</h2>
                 <textarea
                   value={caseDescription}
                   onChange={(e) => setCaseDescription(e.target.value)}
                   placeholder="请详细描述您的案件情况..."
-                  className="w-full h-64 bg-navy-800/50 border border-gold-400/20 rounded-lg p-4 text-gold-200 placeholder-gold-200/40 focus:outline-none focus:border-gold-400/50 resize-none"
+                  className="input-field h-64 resize-none"
                 />
                 <button
                   onClick={handleAnalyze}
                   disabled={isAnalyzing || !caseDescription.trim()}
-                  className="gold-btn mt-4 w-full flex items-center justify-center gap-2"
+                  className="gold-btn mt-6 w-full flex items-center justify-center gap-2 py-3"
                 >
                   {isAnalyzing ? (
                     <>
@@ -146,16 +151,24 @@ export default function ComplexAnalysisPage() {
                     </>
                   )}
                 </button>
-              </div>
+              </motion.div>
 
               {/* 分析步骤 */}
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10">
-                <h2 className="text-xl font-bold text-gold-100 mb-4">分析步骤</h2>
-                <div className="space-y-3">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="glass-card p-6 rounded-xl border border-gold-400/10"
+              >
+                <h2 className="text-xl font-bold text-gold-100 mb-6">分析步骤</h2>
+                <div className="space-y-4">
                   {steps.map((step, index) => (
-                    <div
+                    <motion.div
                       key={index}
-                      className={`flex items-center gap-4 p-3 rounded-lg transition-all ${
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: 0.1 * index }}
+                      className={`flex items-center gap-4 p-4 rounded-lg transition-all duration-300 ${
                         index < currentStep
                           ? 'bg-green-400/10 border border-green-400/20'
                           : index === currentStep && isAnalyzing
@@ -163,21 +176,21 @@ export default function ComplexAnalysisPage() {
                           : 'bg-navy-800/30 border border-gold-400/5'
                       }`}
                     >
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
                         index < currentStep
-                          ? 'bg-green-400/20 text-green-400'
+                          ? 'bg-green-400/20 text-green-400 shadow-lg shadow-green-400/20'
                           : index === currentStep && isAnalyzing
-                          ? 'bg-gold-400/20 text-gold-400'
+                          ? 'bg-gold-400/20 text-gold-400 shadow-lg shadow-gold-400/20'
                           : 'bg-navy-800/50 text-gold-200/30'
                       }`}>
                         {index < currentStep ? (
-                          <CheckCircle className="w-5 h-5" />
+                          <CheckCircle className="w-6 h-6" />
                         ) : (
-                          <step.icon className="w-5 h-5" />
+                          <step.icon className="w-6 h-6" />
                         )}
                       </div>
                       <div className="flex-1">
-                        <span className={`font-medium ${
+                        <span className={`font-medium transition-all duration-300 ${
                           index < currentStep
                             ? 'text-green-400'
                             : index === currentStep && isAnalyzing
@@ -187,10 +200,10 @@ export default function ComplexAnalysisPage() {
                           {step.name}
                         </span>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
-              </div>
+              </motion.div>
             </div>
 
             {/* 结果区域 */}
@@ -200,80 +213,105 @@ export default function ComplexAnalysisPage() {
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
                     className="glass-card p-6 rounded-xl border border-gold-400/10"
                   >
-                    <h2 className="text-xl font-bold text-gold-100 mb-4">分析结果</h2>
+                    <h2 className="text-xl font-bold text-gold-100 mb-6">分析结果</h2>
                     
                     {analysisResult.error ? (
-                      <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400">
+                      <div className="p-5 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400">
                         {analysisResult.error}
                       </div>
                     ) : (
                       <div className="space-y-6">
                         {analysisResult.summary && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <FileText className="w-5 h-5" /> 分析总结
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.summary}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                         
                         {analysisResult.analyst_output && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, delay: 0.1 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <FileText className="w-5 h-5" /> 案情分析
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.analyst_output}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                         
                         {analysisResult.plaintiff_output && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, delay: 0.2 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <User className="w-5 h-5" /> 原告律师意见
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.plaintiff_output}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                         
                         {analysisResult.defendant_output && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, delay: 0.3 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <User className="w-5 h-5" /> 被告律师意见
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.defendant_output}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                         
                         {analysisResult.judge_output && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, delay: 0.4 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <Gavel className="w-5 h-5" /> 法官裁判意见
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.judge_output}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                         
                         {analysisResult.mediator_output && (
-                          <div>
-                            <h3 className="text-lg font-bold text-gold-200 mb-2 flex items-center gap-2">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, delay: 0.5 }}
+                          >
+                            <h3 className="text-lg font-semibold text-gold-200 mb-3 flex items-center gap-2">
                               <CheckCircle className="w-5 h-5" /> 调解员和解方案
                             </h3>
-                            <div className="bg-navy-800/50 p-4 rounded-lg text-gold-200/80 whitespace-pre-wrap">
+                            <div className="bg-navy-800/60 p-5 rounded-lg text-gold-200/90 whitespace-pre-wrap border border-gold-400/10">
                               {analysisResult.mediator_output}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
                       </div>
                     )}

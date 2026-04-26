@@ -158,20 +158,25 @@ export default function CourtroomSimulationPage() {
           <div className="grid lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {/* 输入区域 */}
             <div className="space-y-6">
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6 }}
+                className="glass-card p-6 rounded-xl border border-gold-400/10"
+              >
                 <h2 className="text-xl font-bold text-gold-100 mb-4">案件描述</h2>
                 <textarea
                   value={caseDescription}
                   onChange={(e) => setCaseDescription(e.target.value)}
                   placeholder="请详细描述您的案件情况..."
-                  className="w-full h-64 bg-navy-800/50 border border-gold-400/20 rounded-lg p-4 text-gold-200 placeholder-gold-200/40 focus:outline-none focus:border-gold-400/50 resize-none"
+                  className="input-field h-64 resize-none"
                   disabled={isSimulating}
                 />
-                <div className="flex gap-4 mt-4">
+                <div className="flex gap-4 mt-6">
                   <button
                     onClick={handleStartSimulation}
                     disabled={isSimulating || !caseDescription.trim()}
-                    className="gold-btn flex-1 flex items-center justify-center gap-2"
+                    className="gold-btn flex-1 flex items-center justify-center gap-2 py-3"
                   >
                     {isSimulating ? (
                       <>
@@ -186,50 +191,75 @@ export default function CourtroomSimulationPage() {
                   <button
                     onClick={handleReset}
                     disabled={isSimulating}
-                    className="px-4 py-2 bg-navy-800/50 border border-gold-400/20 text-gold-200 rounded-lg hover:bg-navy-800/70 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    className="px-4 py-3 bg-navy-800/60 border border-gold-400/20 text-gold-200 rounded-lg hover:bg-navy-800/80 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <RotateCcw className="w-5 h-5" />
                   </button>
                 </div>
-              </div>
+              </motion.div>
 
               {/* 角色介绍 */}
-              <div className="glass-card p-6 rounded-xl border border-gold-400/10">
-                <h2 className="text-xl font-bold text-gold-100 mb-4">参与角色</h2>
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="glass-card p-6 rounded-xl border border-gold-400/10"
+              >
+                <h2 className="text-xl font-bold text-gold-100 mb-6">参与角色</h2>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-4 p-3 bg-blue-400/10 border border-blue-400/20 rounded-lg">
-                    <div className="w-12 h-12 rounded-full bg-blue-400/20 flex items-center justify-center text-2xl">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}
+                    className="flex items-center gap-4 p-4 bg-blue-400/10 border border-blue-400/20 rounded-lg"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-blue-400/20 flex items-center justify-center text-2xl">
                       👨‍💼
                     </div>
                     <div>
                       <p className="font-medium text-blue-400">原告律师</p>
                       <p className="text-sm text-gold-200/60">代表原告进行陈述和辩护</p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4 p-3 bg-red-400/10 border border-red-400/20 rounded-lg">
-                    <div className="w-12 h-12 rounded-full bg-red-400/20 flex items-center justify-center text-2xl">
+                  </motion.div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.1 }}
+                    className="flex items-center gap-4 p-4 bg-red-400/10 border border-red-400/20 rounded-lg"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-red-400/20 flex items-center justify-center text-2xl">
                       👩‍💼
                     </div>
                     <div>
                       <p className="font-medium text-red-400">被告律师</p>
                       <p className="text-sm text-gold-200/60">代表被告进行陈述和辩护</p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4 p-3 bg-gold-400/10 border border-gold-400/20 rounded-lg">
-                    <div className="w-12 h-12 rounded-full bg-gold-400/20 flex items-center justify-center text-2xl">
+                  </motion.div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
+                    className="flex items-center gap-4 p-4 bg-gold-400/10 border border-gold-400/20 rounded-lg"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-gold-400/20 flex items-center justify-center text-2xl">
                       👨‍⚖️
                     </div>
                     <div>
                       <p className="font-medium text-gold-400">法官</p>
                       <p className="text-sm text-gold-200/60">主持庭审，作出裁判</p>
                     </div>
-                  </div>
+                  </motion.div>
                 </div>
-              </div>
+              </motion.div>
             </div>
 
             {/* 法庭模拟区域 */}
-            <div className="lg:col-span-2 space-y-6">
+            <motion.div 
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              className="lg:col-span-2 space-y-6"
+            >
               {/* 聊天对话框 */}
               <div className="glass-card rounded-xl border border-gold-400/10 h-[700px] flex flex-col">
                 <div className="p-4 border-b border-gold-400/10 flex items-center gap-2">
@@ -243,25 +273,25 @@ export default function CourtroomSimulationPage() {
                         key={message.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3 }}
+                        transition={{ duration: 0.4 }}
                         className={`flex items-start gap-4 ${
                           message.role === 'plaintiff' ? 'justify-start' : 
                           message.role === 'defendant' ? 'justify-start' : 'justify-center'
                         }`}
                       >
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${getRoleBgColor(message.role)}`}>
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl ${getRoleBgColor(message.role)} shadow-lg shadow-gold-400/10`}>
                           {getRoleAvatar(message.role)}
                         </div>
                         <div className={`max-w-[70%] ${message.role === 'judge' ? 'text-center' : ''}`}>
-                          <div className={`font-medium ${getRoleColor(message.role)} mb-1`}>
+                          <div className={`font-medium ${getRoleColor(message.role)} mb-2`}>
                             {getRoleName(message.role)}
                           </div>
-                          <div className={`p-4 rounded-lg ${getRoleBgColor(message.role)}`}>
-                            <p className="text-gold-200/90 whitespace-pre-wrap">
+                          <div className={`p-5 rounded-lg ${getRoleBgColor(message.role)} shadow-md`}>
+                            <p className="text-gold-200/90 whitespace-pre-wrap leading-relaxed">
                               {message.content}
                             </p>
                           </div>
-                          <div className="text-xs text-gold-200/40 mt-1">
+                          <div className="text-xs text-gold-200/40 mt-2">
                             {message.timestamp.toLocaleTimeString()}
                           </div>
                         </div>
@@ -271,8 +301,13 @@ export default function CourtroomSimulationPage() {
                   
                   {messages.length === 0 && !isSimulating && (
                     <div className="flex flex-col items-center justify-center h-full text-center">
-                      <MessageSquare className="w-20 h-20 text-gold-400/30 mb-6" />
-                      <h3 className="text-xl font-bold text-gold-100 mb-2">准备开始</h3>
+                      <motion.div
+                        animate={{ scale: [1, 1.05, 1] }}
+                        transition={{ duration: 2, repeat: Infinity, repeatType: "reverse" }}
+                      >
+                        <MessageSquare className="w-24 h-24 text-gold-400/30 mb-8" />
+                      </motion.div>
+                      <h3 className="text-xl font-bold text-gold-100 mb-3">准备开始</h3>
                       <p className="text-gold-200/60 max-w-md">
                         输入案件描述并点击"开始模拟"按钮，观看原告和被告律师的辩论过程
                       </p>
@@ -283,18 +318,30 @@ export default function CourtroomSimulationPage() {
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="flex items-center justify-center gap-2"
+                      className="flex items-center justify-center gap-3 mt-8"
                     >
-                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" />
-                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                      <div className="w-3 h-3 bg-gold-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                      <motion.div
+                        animate={{ y: [0, -10, 0] }}
+                        transition={{ duration: 1, repeat: Infinity, repeatType: "loop" }}
+                        className="w-3 h-3 bg-gold-400 rounded-full"
+                      />
+                      <motion.div
+                        animate={{ y: [0, -10, 0] }}
+                        transition={{ duration: 1, repeat: Infinity, repeatType: "loop", delay: 0.2 }}
+                        className="w-3 h-3 bg-gold-400 rounded-full"
+                      />
+                      <motion.div
+                        animate={{ y: [0, -10, 0] }}
+                        transition={{ duration: 1, repeat: Infinity, repeatType: "loop", delay: 0.4 }}
+                        className="w-3 h-3 bg-gold-400 rounded-full"
+                      />
                     </motion.div>
                   )}
                   
                   <div ref={messagesEndRef} />
                 </div>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </main>
