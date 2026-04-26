@@ -264,7 +264,7 @@
   }
 
   .feature-card {
-    @apply glass-card p-6 transition-all duration-400 hover:scale-105;
+    @apply glass-card p-6 transition-all duration-300 hover:scale-105;
   }
 
   .feature-card-icon {
