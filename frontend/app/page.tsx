@@ -61,23 +61,7 @@ export default function Home() {
               </div>
             </Link>
             
-            {/* 简单回答 */}
-            <Link href="/simple-qa" className="group">
-              <div className="glass-card p-8 rounded-xl border border-gold-400/10 hover:border-gold-400/30 transition-all h-full text-left">
-                <div className="w-16 h-16 bg-gradient-to-br from-gold-400/20 to-gold-400/5 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <MessageSquare className="w-8 h-8 text-gold-400" />
-                </div>
-                <h3 className="text-2xl font-bold text-gold-100 mb-3">
-                  简单回答
-                </h3>
-                <p className="text-gold-200/60 mb-6">
-                  快速回答简单法律问题，提供即时法律建议和参考
-                </p>
-                <div className="flex items-center text-gold-400 font-medium">
-                  开始咨询 <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </div>
-            </Link>
+
             
             {/* 法庭模拟 */}
             <Link href="/courtroom-simulation" className="group">

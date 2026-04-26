@@ -8,7 +8,6 @@ import { useState } from 'react'
 const navItems = [
   { name: '首页', icon: LayoutDashboard, href: '/' },
   { name: '复杂案情分析', icon: FileText, href: '/complex-analysis' },
-  { name: '简单回答', icon: MessageSquare, href: '/simple-qa' },
   { name: '法庭模拟', icon: BookOpen, href: '/courtroom-simulation' },
   { name: 'AI 对话', icon: MessageSquare, href: '/chat' },
   { name: '文档分析', icon: FileText, href: '/documents' },
