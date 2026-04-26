@@ -36,20 +36,21 @@ export default function DashboardPage() {
   const fetchCases = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:8000/api/v1/cases', {
+      const response = await fetch('/api/cases', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
 
       if (!response.ok) {
-        throw new Error('获取案件列表失败')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || '获取案件列表失败')
       }
 
       const data = await response.json()
       setCases(data)
     } catch (err: any) {
-      setError('获取案件列表失败')
+      setError(err.message || '获取案件列表失败')
     } finally {
       setLoading(false)
     }
