@@ -42,9 +42,15 @@ export default function RegisterPage() {
       console.log('注册请求响应:', response)
       
       if (!response.ok) {
-        const errorData = await response.json()
-        console.log('注册失败:', errorData)
-        throw new Error(errorData.detail || '注册失败')
+        let errorMessage = '注册失败'
+        try {
+          const errorData = await response.json()
+          console.log('注册失败:', errorData)
+          errorMessage = errorData.detail || `请求失败: ${response.status}`
+        } catch {
+          errorMessage = `请求失败: ${response.status} ${response.statusText}`
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
@@ -56,7 +62,16 @@ export default function RegisterPage() {
       }, 3000)
     } catch (err: any) {
       console.error('注册错误:', err)
-      setError(err.message || '注册失败')
+      // 更好地处理网络错误
+      let errorMessage = '注册失败'
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        errorMessage = '无法连接到服务器，请检查网络连接'
+      } else if (err.message) {
+        errorMessage = err.message
+      } else if (typeof err === 'string') {
+        errorMessage = err
+      }
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
