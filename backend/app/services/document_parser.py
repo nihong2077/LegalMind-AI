@@ -1,8 +1,16 @@
 import fitz  # PyMuPDF
-import cv2
-import numpy as np
 from typing import Optional, Dict, Any, List
 from PIL import Image
+
+# 尝试导入cv2和numpy，如果失败则设置为None
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    np = None
+    CV2_AVAILABLE = False
 
 
 class DocumentParserService:
@@ -46,14 +54,21 @@ class DocumentParserService:
                 }
             else:
                 # 扫描型PDF使用OCR
-                text = self._ocr_scanned_pdf(doc)
-                return {
-                    "success": True,
-                    "text": text,
-                    "is_text_based": False,
-                    "page_count": len(doc),
-                    "method": "ocr"
-                }
+                if CV2_AVAILABLE:
+                    text = self._ocr_scanned_pdf(doc)
+                    return {
+                        "success": True,
+                        "text": text,
+                        "is_text_based": False,
+                        "page_count": len(doc),
+                        "method": "ocr"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "OCR功能不可用，缺少必要的依赖库",
+                        "method": "ocr"
+                    }
         except Exception as e:
             return {
                 "success": False,

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ArrowRight, Gavel, User, Clock, CheckCircle, AlertCircle, FileText } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { ArrowRight, Gavel, User, Clock, CheckCircle, AlertCircle, FileText, Upload, Paperclip, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Sidebar from '@/components/Sidebar'
 
@@ -21,6 +21,9 @@ export default function ComplexAnalysisPage() {
   const [analysisResult, setAnalysisResult] = useState<CaseAnalysisResult | null>(null)
   const [currentStep, setCurrentStep] = useState(0)
   const [showResult, setShowResult] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, size: string, status: 'uploading' | 'success' | 'error'}>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const steps = [
     { name: '案情分析', icon: FileText },
@@ -30,6 +33,64 @@ export default function ComplexAnalysisPage() {
     { name: '调解员', icon: CheckCircle },
     { name: '生成总结', icon: FileText }
   ]
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    
+    setIsUploading(true)
+    
+    for (const file of files) {
+      const newFile = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2),
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + ' KB',
+        status: 'uploading' as const
+      }
+      
+      setUploadedFiles(prev => [...prev, newFile])
+      
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        
+        const token = localStorage.getItem('token')
+        const response = await fetch('/api/upload-document', {
+          method: 'POST',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+          },
+          body: formData,
+        })
+        
+        const result = await response.json()
+        
+        if (result.success && result.text) {
+          // 将解析的文本添加到案件描述中
+          setCaseDescription(prev => prev + '\n\n--- 从文档中提取的内容 ---\n' + result.text)
+          
+          setUploadedFiles(prev => prev.map(f => 
+            f.id === newFile.id ? { ...f, status: 'success' as const } : f
+          ))
+        } else {
+          setUploadedFiles(prev => prev.map(f => 
+            f.id === newFile.id ? { ...f, status: 'error' as const } : f
+          ))
+        }
+      } catch (error) {
+        console.error('文件上传失败:', error)
+        setUploadedFiles(prev => prev.map(f => 
+          f.id === newFile.id ? { ...f, status: 'error' as const } : f
+        ))
+      }
+    }
+    
+    setIsUploading(false)
+  }
+
+  const removeFile = (fileId: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== fileId))
+  }
 
   const handleAnalyze = async () => {
     if (!caseDescription.trim()) return
@@ -130,16 +191,74 @@ export default function ComplexAnalysisPage() {
                 className="glass-card p-6 rounded-xl border border-gold-400/10"
               >
                 <h2 className="text-xl font-bold text-gold-100 mb-4">案件描述</h2>
+                
+                {/* 文件上传区域 */}
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="flex items-center gap-2 text-sm text-gold-400 hover:text-gold-300 transition-colors mb-3"
+                  >
+                    <Upload className="w-4 h-4" />
+                    上传文件 (PDF, TXT)
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.txt"
+                    onChange={handleUpload}
+                    className="hidden"
+                  />
+                  
+                  {/* 上传文件列表 */}
+                  <div className="space-y-2 mt-2">
+                    {uploadedFiles.map(file => (
+                      <div key={file.id} className="flex items-center justify-between p-2 rounded-lg border border-gold-400/10 bg-navy-800/30">
+                        <div className="flex items-center gap-2">
+                          <Paperclip className="w-4 h-4 text-gold-400/60" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gold-200 truncate">{file.name}</p>
+                            <p className="text-xs text-gold-200/40">{file.size}</p>
+                          </div>
+                          <div className={`text-xs font-medium ${file.status === 'uploading' ? 'text-gold-400' : file.status === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                            {file.status === 'uploading' ? '上传中...' : file.status === 'success' ? '成功' : '失败'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeFile(file.id)}
+                          className="text-gold-200/40 hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* 改进的案件描述文本区域 */}
                 <textarea
                   value={caseDescription}
                   onChange={(e) => setCaseDescription(e.target.value)}
-                  placeholder="请详细描述您的案件情况..."
-                  className="input-field h-64 resize-none"
+                  placeholder="请详细描述您的案件情况...\n\n您可以：\n- 上传相关法律文件\n- 描述案件的时间、地点、人物\n- 说明争议的焦点\n- 提供相关证据"
+                  className="input-field h-80 resize-none font-mono text-sm"
                 />
+                <div className="flex items-center justify-between mt-4 mb-6">
+                  <span className="text-xs text-gold-200/40">{caseDescription.length} 字符</span>
+                  <button
+                    type="button"
+                    onClick={() => setCaseDescription('')}
+                    className="text-xs text-gold-400/60 hover:text-gold-400 transition-colors"
+                  >
+                    清空
+                  </button>
+                </div>
+                
                 <button
                   onClick={handleAnalyze}
                   disabled={isAnalyzing || !caseDescription.trim()}
-                  className="gold-btn mt-6 w-full flex items-center justify-center gap-2 py-3"
+                  className="gold-btn w-full flex items-center justify-center gap-2 py-3"
                 >
                   {isAnalyzing ? (
                     <>
