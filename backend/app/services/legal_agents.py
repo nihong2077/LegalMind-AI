@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 import logging
 
 from ..core.llm_client import get_llm_client
-from ..core.redis_client import get_redis_client
+from ..core.redis_client import get_redis
 from .semantic_cache import semantic_cache
 
 # 配置日志
@@ -31,7 +31,7 @@ class LegalAgent:
         try:
             # 尝试从缓存获取
             cache_key = f"{self.role}:{hash(str(messages))}"
-            cached_response = await semantic_cache.get(cache_key)
+            cached_response = await semantic_cache.get_cache(cache_key)
             if cached_response:
                 logger.info(f"从缓存获取 {self.name} 的响应")
                 return cached_response
@@ -46,7 +46,7 @@ class LegalAgent:
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             
             # 缓存响应
-            await semantic_cache.set(cache_key, content)
+            await semantic_cache.set_cache(cache_key, content)
             
             return content
         except Exception as e:
