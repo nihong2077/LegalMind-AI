@@ -33,3 +33,4 @@ cuda-repo-wsl-ubuntu-*.deb
 Thumbs.db
 
 .trae/
+.nvm

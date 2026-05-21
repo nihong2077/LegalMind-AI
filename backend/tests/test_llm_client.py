@@ -34,7 +34,7 @@ async def test_llm_client_chat(mock_httpx_client, mock_httpx_response):
     client._client = mock_httpx_client
 
     result = await client.chat(
-        model="gemma4-9b",
+        model="deepseek-flash",
         messages=[{"role": "user", "content": "你好"}],
     )
 
@@ -60,7 +60,7 @@ async def test_llm_client_chat_with_cache(mock_httpx_client, mock_httpx_response
 
     with patch("app.core.llm_client.get_redis", return_value=mock_redis):
         result = await client.chat(
-            model="gemma4-9b",
+            model="deepseek-flash",
             messages=[{"role": "user", "content": "审查合同"}],
             cache_key="contract_review_001",
         )
@@ -83,7 +83,7 @@ async def test_llm_client_cache_hit():
 
     with patch("app.core.llm_client.get_redis", return_value=mock_redis):
         result = await client.chat(
-            model="gemma4-9b",
+            model="deepseek-flash",
             messages=[{"role": "user", "content": "测试"}],
             cache_key="cache_hit_key",
         )
@@ -121,8 +121,8 @@ async def test_llm_client_health_check_unhealthy():
 async def test_llm_client_list_models(mock_httpx_client, mock_httpx_response):
     mock_httpx_response.json.return_value = {
         "data": [
-            {"id": "gemma4-9b", "object": "model"},
-            {"id": "qwen3-1.5b", "object": "model"},
+            {"id": "deepseek-v4-pro", "object": "model"},
+            {"id": "deepseek-flash", "object": "model"},
         ]
     }
     mock_httpx_client.get = AsyncMock(return_value=mock_httpx_response)
@@ -133,7 +133,7 @@ async def test_llm_client_list_models(mock_httpx_client, mock_httpx_response):
     models = await client.list_models()
 
     assert len(models) == 2
-    assert models[0]["id"] == "gemma4-9b"
+    assert models[0]["id"] == "deepseek-v4-pro"
 
 
 @pytest.mark.asyncio

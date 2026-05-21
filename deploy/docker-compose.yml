@@ -1,13 +1,13 @@
-version: '3.8'
-
 services:
   backend:
     build: ../backend
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - LITELLM_PROXY_URL=http://litellm:4000
+      - LITELLM_VIRTUAL_KEY=${LITELLM_VIRTUAL_KEY}
     depends_on:
       - redis
 
@@ -16,19 +16,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-
-  n8n:
-    image: n8nio/n8n:latest
-    ports:
-      - "5678:5678"
-    environment:
-      - EXECUTIONS_MODE=queue
-      - QUEUE_BULL_REDIS_HOST=redis
-    depends_on:
-      - redis

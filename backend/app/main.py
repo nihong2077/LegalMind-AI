@@ -5,9 +5,12 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from sqlalchemy import text
 
 from .core.config import settings
 from .core.llm_client import close_llm_client, get_llm_client
+from .core.pg_client import close_pg, init_pg
+from .core.qdrant_client import close_qdrant, init_qdrant
 from .core.redis_client import close_redis, init_redis, redis_health_check
 from .routers import gateway
 
@@ -31,9 +34,13 @@ CIRCUIT_BREAKER_TRIPS = Counter(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_redis()
+    await init_pg()
+    await init_qdrant()
     get_llm_client()
     yield
     await close_llm_client()
+    await close_qdrant()
+    await close_pg()
     await close_redis()
 
 
@@ -45,7 +52,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.CORS_ORIGINS if hasattr(settings, 'CORS_ORIGINS') else "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,14 +122,50 @@ async def root():
 async def health_check():
     redis_status = await redis_health_check()
     llm_status = await get_llm_client().health_check()
+
+    pg_statuses = {}
+    try:
+        from .core.pg_client import ENGINES
+        for name, engine in ENGINES.items():
+            try:
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+                pg_statuses[name] = {"status": "healthy"}
+            except Exception as e:
+                pg_statuses[name] = {"status": "unhealthy", "error": str(e)}
+    except Exception as e:
+        pg_statuses = {"error": str(e)}
+
+    qdrant_status = {"status": "healthy"}
+    try:
+        from .core.qdrant_client import COLLECTIONS, get_qdrant_client
+        client = get_qdrant_client()
+        for name, collection in COLLECTIONS.items():
+            try:
+                await client.get_collection(collection)
+            except Exception as e:
+                qdrant_status = {"status": "degraded", "error": f"{collection}: {e}"}
+    except Exception as e:
+        qdrant_status = {"status": "unhealthy", "error": str(e)}
+
+    components = [redis_status, llm_status, qdrant_status]
+    components.extend(pg_statuses.values() if isinstance(pg_statuses, dict) and "error" not in pg_statuses else [pg_statuses])
+    unhealthy = any(c.get("status") == "unhealthy" for c in components if isinstance(c, dict))
+    degraded = any(c.get("status") != "healthy" for c in components if isinstance(c, dict))
+
     overall = "healthy"
-    if redis_status["status"] != "healthy" or llm_status["status"] != "healthy":
-        overall = "degraded" if redis_status["status"] != "unhealthy" and llm_status["status"] != "unhealthy" else "unhealthy"
+    if unhealthy:
+        overall = "unhealthy"
+    elif degraded:
+        overall = "degraded"
+
     return {
         "status": overall,
         "version": "1.0.0",
         "redis": redis_status,
         "litellm": llm_status,
+        "postgres": pg_statuses,
+        "qdrant": qdrant_status,
     }
 
 

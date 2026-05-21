@@ -2,6 +2,7 @@ import logging
 from typing import AsyncIterator, Optional
 
 import httpx
+from langchain_openai import ChatOpenAI
 
 from .config import settings
 from .redis_client import get_redis
@@ -10,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 LITELLM_CACHE_PREFIX = "legalmind:llm_cache:"
 CACHE_TTL = 3600
+
+DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
+DEEPSEEK_MODELS = {
+    "deepseek-v4-pro": "deepseek-chat",
+    "deepseek-flash": "deepseek-chat",
+}
 
 
 class LLMClient:
@@ -37,6 +44,34 @@ class LLMClient:
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+
+    def get_chat_model(
+        self,
+        model: str = "deepseek-v4-pro",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        streaming: bool = False,
+    ) -> ChatOpenAI:
+        if self.virtual_key and self.proxy_url:
+            return ChatOpenAI(
+                model=model,
+                openai_api_base=f"{self.proxy_url}/v1",
+                openai_api_key=self.virtual_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                streaming=streaming,
+            )
+
+        deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
+        api_model = DEEPSEEK_MODELS.get(model, model)
+        return ChatOpenAI(
+            model=api_model,
+            openai_api_base=DEEPSEEK_API_BASE,
+            openai_api_key=deepseek_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=streaming,
+        )
 
     async def chat(
         self,

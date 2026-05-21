@@ -1,28 +1,13 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Sidebar from '@/components/Sidebar'
-import { MessageSquare, FileText, BookOpen, TrendingUp } from 'lucide-react'
+import LoginModal from '@/components/LoginModal'
+import { MessageSquare, FileText, BookOpen, TrendingUp, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-
-const stats = [
-  { label: 'AI 对话次数', value: '128', icon: MessageSquare, color: 'text-gold-400' },
-  { label: '已分析文档', value: '36', icon: FileText, color: 'text-blue-400' },
-  { label: '法律知识条目', value: '2,450', icon: BookOpen, color: 'text-emerald-400' },
-  { label: '案件处理效率', value: '+45%', icon: TrendingUp, color: 'text-purple-400' },
-]
-
-const quickActions = [
-  { title: 'AI 法律对话', desc: '向 AI 助手咨询法律问题', href: '/chat', icon: MessageSquare },
-  { title: '文档智能分析', desc: '上传合同、诉状等法律文书', href: '/documents', icon: FileText },
-  { title: '法律知识检索', desc: '搜索法律法规与判例', href: '/knowledge', icon: BookOpen },
-]
-
-const recentCases = [
-  { id: '1', title: '劳动合同纠纷 - 张某诉某科技公司', status: '分析中', time: '2 小时前' },
-  { id: '2', title: '房屋买卖合同违约 - 李某诉王某', status: '已完成', time: '昨天' },
-  { id: '3', title: '交通事故损害赔偿 - 赵某诉某保险公司', status: '待处理', time: '3 天前' },
-]
+import { getDashboardStats, getRecentCases, type DashboardStats, type CaseItem } from '@/app/lib/api'
+import { useChatStore } from '@/store/useChatStore'
 
 const container = {
   hidden: { opacity: 0 },
@@ -35,9 +20,61 @@ const item = {
 }
 
 export default function DashboardPage() {
+  const { authed } = useChatStore()
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [cases, setCases] = useState<CaseItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!authed) {
+      setLoading(false)
+      return
+    }
+    loadData()
+  }, [authed])
+
+  async function loadData() {
+    setLoading(true)
+    try {
+      const [statsData, casesData] = await Promise.all([
+        getDashboardStats(),
+        getRecentCases(),
+      ])
+      setStats(statsData)
+      setCases(casesData)
+    } catch {
+      // 未登录或 API 不可用，使用默认值
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const statCards = [
+    { label: 'AI 对话次数', value: stats?.chat_count ?? 0, icon: MessageSquare, color: 'text-gold-400' },
+    { label: '已分析文档', value: stats?.doc_count ?? 0, icon: FileText, color: 'text-blue-400' },
+    { label: '法律知识条目', value: stats?.knowledge_count ?? 2450, icon: BookOpen, color: 'text-emerald-400' },
+    { label: '案件处理效率', value: stats?.efficiency_gain ?? '+45%', icon: TrendingUp, color: 'text-purple-400' },
+  ]
+
+  const quickActions = [
+    { title: 'AI 法律对话', desc: '向 AI 助手咨询法律问题', href: '/chat', icon: MessageSquare },
+    { title: '文档智能分析', desc: '上传合同、诉状等法律文书', href: '/documents', icon: FileText },
+    { title: '法律知识检索', desc: '搜索法律法规与判例', href: '/knowledge', icon: BookOpen },
+  ]
+
+  const statusLabel = (s: string) => {
+    switch (s) {
+      case 'completed': return { text: '已完成', cls: 'bg-green-400/10 text-green-400' }
+      case 'analyzing': return { text: '分析中', cls: 'bg-gold-400/10 text-gold-400' }
+      case 'pending': return { text: '待处理', cls: 'bg-gold-200/10 text-gold-200/50' }
+      default: return { text: s, cls: 'bg-gold-200/10 text-gold-200/50' }
+    }
+  }
+
   return (
     <div className="flex h-screen">
-      <Sidebar />
+      <Sidebar onLoginClick={() => setShowLoginModal(true)} />
       <main className="flex-1 overflow-y-auto p-8">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h2 className="text-2xl font-bold text-gold-200 mb-1">工作台</h2>
@@ -50,11 +87,13 @@ export default function DashboardPage() {
           animate="show"
           className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
         >
-          {stats.map((s) => (
+          {statCards.map((s) => (
             <motion.div key={s.label} variants={item} className="glass-card-static p-5">
               <div className="flex items-center justify-between mb-3">
                 <s.icon size={18} className={s.color} />
-                <span className="text-2xl font-bold text-gold-200">{s.value}</span>
+                <span className="text-2xl font-bold text-gold-200">
+                  {loading ? '...' : s.value}
+                </span>
               </div>
               <p className="text-xs text-gold-200/40">{s.label}</p>
             </motion.div>
@@ -72,10 +111,7 @@ export default function DashboardPage() {
             >
               {quickActions.map((a) => (
                 <motion.div key={a.title} variants={item}>
-                  <Link
-                    href={a.href}
-                    className="glass-card p-6 block group"
-                  >
+                  <Link href={a.href} className="glass-card p-6 block group">
                     <div className="feature-glow" />
                     <a.icon size={24} className="text-gold-400 mb-4 relative z-10" />
                     <h4 className="font-semibold text-gold-200 mb-1 relative z-10">{a.title}</h4>
@@ -87,26 +123,47 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gold-200">最近案件</h3>
-            <div className="space-y-3">
-              {recentCases.map((c) => (
-                <div key={c.id} className="glass-card-static p-4">
-                  <p className="text-sm text-gold-200 mb-2 truncate">{c.title}</p>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full
-                      ${c.status === '已完成' ? 'bg-green-400/10 text-green-400' :
-                        c.status === '分析中' ? 'bg-gold-400/10 text-gold-400' :
-                        'bg-gold-200/10 text-gold-200/50'}`}>
-                      {c.status}
-                    </span>
-                    <span className="text-[10px] text-gold-200/30">{c.time}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gold-200">最近案件</h3>
+              {authed && cases.length > 0 && (
+                <Link href="/chat" className="text-xs text-gold-400 hover:text-gold-300 flex items-center gap-1">
+                  <Plus size={12} /> 新建
+                </Link>
+              )}
             </div>
+            {cases.length > 0 ? (
+              <div className="space-y-3">
+                {cases.map((c) => {
+                  const sl = statusLabel(c.status)
+                  return (
+                    <div key={c.id} className="glass-card-static p-4">
+                      <p className="text-sm text-gold-200 mb-2 truncate">{c.title}</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${sl.cls}`}>
+                          {sl.text}
+                        </span>
+                        <span className="text-[10px] text-gold-200/30">{c.created_at}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="glass-card-static p-6 text-center">
+                <p className="text-xs text-gold-200/40 mb-3">
+                  {authed ? '暂无案件记录' : '请先登录查看案件'}
+                </p>
+                {authed && (
+                  <Link href="/chat" className="text-xs text-gold-400 hover:text-gold-300">
+                    开始 AI 对话创建案件
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
+      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={() => setShowLoginModal(false)} />
     </div>
   )
 }

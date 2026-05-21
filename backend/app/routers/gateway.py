@@ -1,23 +1,29 @@
 import asyncio
 import functools
 import json
+import logging
+import os
 import time
+import uuid
 from enum import Enum
 from typing import Callable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, status
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from ..core.config import settings
+from ..core.llm_client import get_llm_client
 from ..core.redis_client import (
     enqueue_task,
     generate_task_id,
     get_redis,
     get_stream_events,
     get_task_status,
-    update_task_status,
 )
 from ..core.security import create_access_token, get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["gateway"])
 
@@ -324,3 +330,913 @@ async def reset_circuit(name: str, user: dict = Depends(get_current_user)):
     cb = RedisCircuitBreaker(name=name)
     await cb.reset()
     return {"name": name, "state": CircuitState.CLOSED.value, "message": "熔断器已重置"}
+
+
+LEGAL_SYSTEM_PROMPT = """你是 LegalMind AI，一个专业的中国法律智能助手。你的职责是：
+
+1. 基于中国法律法规（民法典、刑法、劳动法、合同法等）提供专业法律分析
+2. 用清晰易懂的语言解释法律概念和条文
+3. 提供实用的法律建议和操作指引
+4. 在涉及具体案件时提醒用户咨询专业律师
+
+回答要求：
+- 引用具体法律条文时标注法律名称和条号
+- 区分法律意见和事实陈述
+- 涉及诉讼时效、管辖等关键信息时重点提示
+- 不得提供虚假或误导性法律信息
+- 如不确定，明确告知并建议咨询专业律师"""
+
+
+class ChatRequest(BaseModel):
+    messages: list[dict]
+    model: str = "gemma4-9b"
+    temperature: float = 0.7
+    max_tokens: int = 2048
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    body: ChatRequest,
+    request: Request,
+    user: dict = Depends(check_rate_limit),
+):
+    cb = RedisCircuitBreaker(name="llm_service")
+    if not await cb.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM 服务暂时不可用，熔断保护中",
+        )
+
+    messages = body.messages
+    if not any(m.get("role") == "system" for m in messages):
+        messages = [{"role": "system", "content": LEGAL_SYSTEM_PROMPT}] + messages
+
+    llm = get_llm_client()
+
+    async def event_generator():
+        full_content = ""
+        try:
+            async for chunk in llm.chat_stream(
+                model=body.model,
+                messages=messages,
+                temperature=body.temperature,
+                max_tokens=body.max_tokens,
+            ):
+                if await request.is_disconnected():
+                    break
+
+                choices = chunk.get("choices", [])
+                if not choices:
+                    continue
+
+                delta = choices[0].get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    full_content += content
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "content": content,
+                            "role": "assistant",
+                        }, ensure_ascii=False),
+                    }
+
+            yield {
+                "event": "done",
+                "data": json.dumps({
+                    "content": full_content,
+                    "role": "assistant",
+                    "finish_reason": "stop",
+                }, ensure_ascii=False),
+            }
+
+            await cb.record_success()
+
+            r = get_redis()
+            await r.incr(f"{DASHBOARD_STATS_PREFIX}chat_count")
+
+        except Exception as e:
+            logger.error("LLM 流式调用失败: %s", e)
+            await cb.record_failure()
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "error": str(e),
+                    "message": "AI 服务暂时不可用，请稍后重试",
+                }, ensure_ascii=False),
+            }
+
+    return EventSourceResponse(
+        event_generator(),
+        ping=SSE_PING_INTERVAL,
+        sep="\n",
+    )
+
+
+@router.post("/chat")
+async def chat_completion(
+    body: ChatRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    cb = RedisCircuitBreaker(name="llm_service")
+    if not await cb.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM 服务暂时不可用，熔断保护中",
+        )
+
+    messages = body.messages
+    if not any(m.get("role") == "system" for m in messages):
+        messages = [{"role": "system", "content": LEGAL_SYSTEM_PROMPT}] + messages
+
+    llm = get_llm_client()
+    try:
+        result = await llm.chat(
+            model=body.model,
+            messages=messages,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+        )
+        await cb.record_success()
+        return result
+    except Exception as e:
+        await cb.record_failure()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM 服务调用失败: {str(e)}",
+        )
+
+
+DASHBOARD_STATS_PREFIX = "legalmind:stats:"
+DOCUMENTS_PREFIX = "legalmind:docs:"
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
+
+
+@router.get("/dashboard/stats")
+async def get_dashboard_stats(user: dict = Depends(get_current_user)):
+    r = get_redis()
+    chat_count = int(await r.get(f"{DASHBOARD_STATS_PREFIX}chat_count") or 0)
+    doc_count = int(await r.get(f"{DASHBOARD_STATS_PREFIX}doc_count") or 0)
+    knowledge_count = int(await r.get(f"{DASHBOARD_STATS_PREFIX}knowledge_count") or 2450)
+
+    return {
+        "chat_count": chat_count,
+        "doc_count": doc_count,
+        "knowledge_count": knowledge_count,
+        "efficiency_gain": "+45%",
+    }
+
+
+@router.post("/dashboard/stats/increment")
+async def increment_stat(
+    key: str = Query(..., description="要增加的统计键: chat_count / doc_count"),
+    user: dict = Depends(get_current_user),
+):
+    if key not in ("chat_count", "doc_count"):
+        raise HTTPException(status_code=400, detail="不支持的统计键")
+    r = get_redis()
+    await r.incr(f"{DASHBOARD_STATS_PREFIX}{key}")
+    return {"status": "ok", "key": key}
+
+
+@router.get("/dashboard/cases")
+async def get_recent_cases(user: dict = Depends(get_current_user)):
+    r = get_redis()
+    cases_raw = await r.lrange(f"{DASHBOARD_STATS_PREFIX}cases", 0, 9)
+    cases = []
+    for c in cases_raw:
+        try:
+            cases.append(json.loads(c))
+        except json.JSONDecodeError:
+            continue
+    return cases
+
+
+@router.post("/dashboard/cases")
+async def create_case(
+    title: str,
+    description: str = "",
+    user: dict = Depends(get_current_user),
+):
+    r = get_redis()
+    case = {
+        "id": str(uuid.uuid4())[:8],
+        "title": title,
+        "description": description,
+        "status": "pending",
+        "created_at": time.strftime("%Y-%m-%d %H:%M"),
+    }
+    await r.lpush(f"{DASHBOARD_STATS_PREFIX}cases", json.dumps(case, ensure_ascii=False))
+    await r.ltrim(f"{DASHBOARD_STATS_PREFIX}cases", 0, 49)
+    return case
+
+
+@router.post("/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    user: dict = Depends(check_rate_limit),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    allowed_ext = {".pdf", ".docx", ".txt", ".doc"}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_ext:
+        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    doc_id = str(uuid.uuid4())[:8]
+    save_path = os.path.join(UPLOAD_DIR, f"{doc_id}_{file.filename}")
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
+
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    r = get_redis()
+    doc_info = {
+        "id": doc_id,
+        "name": file.filename,
+        "size": f"{len(content) / 1024:.1f} KB",
+        "type": ext[1:].upper(),
+        "status": "uploaded",
+        "uploaded_at": time.strftime("%Y-%m-%d %H:%M"),
+        "path": save_path,
+    }
+    await r.hset(f"{DOCUMENTS_PREFIX}{doc_id}", mapping=doc_info)
+    await r.incr(f"{DASHBOARD_STATS_PREFIX}doc_count")
+
+    return doc_info
+
+
+@router.get("/documents")
+async def list_documents(user: dict = Depends(get_current_user)):
+    r = get_redis()
+    keys = []
+    async for key in r.scan_iter(f"{DOCUMENTS_PREFIX}*"):
+        keys.append(key)
+
+    docs = []
+    for key in keys:
+        data = await r.hgetall(key)
+        if data:
+            doc = {k: v for k, v in data.items() if k != "path"}
+            docs.append(doc)
+    docs.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
+    return docs
+
+
+@router.get("/documents/{doc_id}")
+async def get_document(doc_id: str, user: dict = Depends(get_current_user)):
+    r = get_redis()
+    data = await r.hgetall(f"{DOCUMENTS_PREFIX}{doc_id}")
+    if not data:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return {k: v for k, v in data.items() if k != "path"}
+
+
+@router.get("/documents/{doc_id}/content")
+async def get_document_content(doc_id: str, user: dict = Depends(get_current_user)):
+    r = get_redis()
+    data = await r.hgetall(f"{DOCUMENTS_PREFIX}{doc_id}")
+    if not data:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    file_path = data.get("path", "")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    ext = os.path.splitext(file_path)[1].lower()
+    text_content = ""
+
+    try:
+        if ext == ".txt":
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                text_content = f.read()
+        elif ext == ".pdf":
+            try:
+                import fitz
+                doc = fitz.open(file_path)
+                for page in doc:
+                    text_content += page.get_text()
+                doc.close()
+            except ImportError:
+                text_content = f"[PDF文件: {data.get('name', '')}]"
+        elif ext in (".docx", ".doc"):
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                text_content = "\n".join(p.text for p in doc.paragraphs)
+            except ImportError:
+                text_content = f"[Word文件: {data.get('name', '')}]"
+        else:
+            text_content = f"[文件: {data.get('name', '')}]"
+    except Exception as e:
+        logger.warning("读取文档内容失败: %s", e)
+        text_content = f"[读取失败: {data.get('name', '')}]"
+
+    return {"doc_id": doc_id, "name": data.get("name", ""), "content": text_content[:50000]}
+
+
+@router.post("/documents/{doc_id}/analyze")
+async def analyze_document(
+    doc_id: str,
+    user: dict = Depends(check_rate_limit),
+):
+    r = get_redis()
+    data = await r.hgetall(f"{DOCUMENTS_PREFIX}{doc_id}")
+    if not data:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    await r.hset(f"{DOCUMENTS_PREFIX}{doc_id}", "status", "analyzing")
+
+    task_id = generate_task_id()
+    await enqueue_task(
+        task_type="document_analysis",
+        payload={"doc_id": doc_id, "doc_name": data.get("name", "")},
+        task_id=task_id,
+    )
+
+    return {"task_id": task_id, "doc_id": doc_id, "status": "analyzing"}
+
+
+class AgentRequest(BaseModel):
+    query: str
+    context: str = ""
+    task_type: str = "analyze"
+
+
+@router.post("/agents/run")
+async def run_agent(
+    body: AgentRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.workflows import build_legal_workflow
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.7, max_tokens=4096)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.5, max_tokens=2048)
+
+    workflow = build_legal_workflow(heavy_llm=heavy_llm, fast_llm=fast_llm)
+
+    result = await workflow.ainvoke({
+        "messages": [],
+        "query": body.query,
+        "context": body.context,
+        "task_type": body.task_type,
+        "analysis_result": "",
+        "review_result": "",
+        "research_result": "",
+        "final_result": "",
+    })
+
+    return {"result": result.get("final_result", ""), "task_type": body.task_type}
+
+
+@router.post("/agents/stream")
+async def stream_agent(
+    body: AgentRequest,
+    request: Request,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.agents import LegalAnalyzer, ContractReviewer, RegulatoryResearcher
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.7, max_tokens=4096, streaming=True)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.5, max_tokens=2048, streaming=True)
+
+    async def event_generator():
+        try:
+            if body.task_type in ("analyze", "full"):
+                analyzer = LegalAnalyzer(heavy_llm)
+                async for chunk in analyzer.analyze_stream(body.query, body.context):
+                    yield {"event": "analysis", "data": json.dumps({"content": chunk}, ensure_ascii=False)}
+
+            if body.task_type in ("review", "full"):
+                reviewer = ContractReviewer(heavy_llm)
+                async for chunk in reviewer.review_stream(body.context or body.query):
+                    yield {"event": "review", "data": json.dumps({"content": chunk}, ensure_ascii=False)}
+
+            if body.task_type in ("research", "full"):
+                researcher = RegulatoryResearcher(fast_llm)
+                async for chunk in researcher.research_stream(body.query):
+                    yield {"event": "research", "data": json.dumps({"content": chunk}, ensure_ascii=False)}
+
+            yield {"event": "done", "data": json.dumps({"status": "completed"}, ensure_ascii=False)}
+        except Exception as e:
+            logger.error(f"Agent stream error: {e}")
+            yield {"event": "error", "data": json.dumps({"error": str(e)}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str
+    domain: str = "law"
+    top_k: int = 8
+    use_hyde: bool = True
+
+
+class KnowledgeListRequest(BaseModel):
+    domain: str = "law"
+    category: str = ""
+    keyword: str = ""
+    page: int = 1
+    page_size: int = 20
+
+
+@router.post("/knowledge/search")
+async def search_knowledge(
+    body: KnowledgeSearchRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.legal.rag_retriever import retrieve_legal_knowledge
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=1024)
+
+    results = await retrieve_legal_knowledge(
+        query=body.query,
+        llm=fast_llm,
+        top_k=body.top_k,
+        use_hyde=body.use_hyde,
+        domain=body.domain,
+    )
+
+    return {"results": results, "total": len(results)}
+
+
+@router.get("/knowledge/list")
+async def list_knowledge(
+    domain: str = Query("law"),
+    category: str = Query(""),
+    keyword: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
+):
+    from ..core.pg_client import ENGINES
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    if domain not in ("law", "judge", "lawyer"):
+        raise HTTPException(status_code=400, detail="domain 必须为 law/judge/lawyer")
+
+    engine = ENGINES.get(domain)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"未知的领域: {domain}")
+
+    offset = (page - 1) * page_size
+    items = []
+    total = 0
+
+    try:
+        from sqlalchemy import text
+        async with AsyncSession(engine) as session:
+            if domain == "law":
+                table = "legal_provisions"
+                where_parts = []
+                params = {}
+                if keyword:
+                    where_parts.append("content ILIKE :kw OR law_name ILIKE :kw")
+                    params["kw"] = f"%{keyword}%"
+                if category:
+                    where_parts.append("law_type = :cat")
+                    params["cat"] = category
+                where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+                count_sql = f"SELECT COUNT(*) FROM {table}{where_clause}"
+                data_sql = f"SELECT law_name, law_type, chapter, section, article_number, article_title, content, effective_date, status FROM {table}{where_clause} ORDER BY law_name, article_number LIMIT :limit OFFSET :offset"
+                params["limit"] = page_size
+                params["offset"] = offset
+
+                count_result = await session.execute(text(count_sql), params)
+                total = count_result.scalar() or 0
+
+                data_result = await session.execute(text(data_sql), params)
+                rows = data_result.fetchall()
+                for row in rows:
+                    items.append({
+                        "law_name": row[0],
+                        "law_type": row[1],
+                        "chapter": row[2],
+                        "section": row[3],
+                        "article_number": row[4],
+                        "article_title": row[5],
+                        "content": row[6],
+                        "effective_date": str(row[7]) if row[7] else "",
+                        "status": row[8],
+                    })
+            elif domain == "judge":
+                table = "judge_cases"
+                where_parts = []
+                params = {}
+                if keyword:
+                    where_parts.append("case_name ILIKE :kw OR cause_of_action ILIKE :kw")
+                    params["kw"] = f"%{keyword}%"
+                if category:
+                    where_parts.append("case_type = :cat")
+                    params["cat"] = category
+                where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+                count_sql = f"SELECT COUNT(*) FROM {table}{where_clause}"
+                data_sql = f"SELECT case_number, case_name, court_name, case_type, cause_of_action, judgment_date, judgment_result FROM {table}{where_clause} ORDER BY judgment_date DESC LIMIT :limit OFFSET :offset"
+                params["limit"] = page_size
+                params["offset"] = offset
+
+                count_result = await session.execute(text(count_sql), params)
+                total = count_result.scalar() or 0
+
+                data_result = await session.execute(text(data_sql), params)
+                rows = data_result.fetchall()
+                for row in rows:
+                    items.append({
+                        "case_number": row[0],
+                        "case_name": row[1],
+                        "court_name": row[2],
+                        "case_type": row[3],
+                        "cause_of_action": row[4],
+                        "judgment_date": str(row[5]) if row[5] else "",
+                        "judgment_result": row[6],
+                    })
+            elif domain == "lawyer":
+                table = "defense_strategies"
+                where_parts = []
+                params = {}
+                if keyword:
+                    where_parts.append("strategy_name ILIKE :kw OR argument_template ILIKE :kw")
+                    params["kw"] = f"%{keyword}%"
+                if category:
+                    where_parts.append("case_type = :cat")
+                    params["cat"] = category
+                where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+                count_sql = f"SELECT COUNT(*) FROM {table}{where_clause}"
+                data_sql = f"SELECT strategy_name, case_type, applicable_scenario, argument_template, success_rate FROM {table}{where_clause} ORDER BY strategy_name LIMIT :limit OFFSET :offset"
+                params["limit"] = page_size
+                params["offset"] = offset
+
+                count_result = await session.execute(text(count_sql), params)
+                total = count_result.scalar() or 0
+
+                data_result = await session.execute(text(data_sql), params)
+                rows = data_result.fetchall()
+                for row in rows:
+                    items.append({
+                        "strategy_name": row[0],
+                        "case_type": row[1],
+                        "applicable_scenario": row[2],
+                        "argument_template": row[3],
+                        "success_rate": row[4],
+                    })
+    except Exception as e:
+        logger.warning("知识库列表查询失败: %s", e)
+
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+class DebateRequest(BaseModel):
+    case_description: str
+    evidence_summary: str = ""
+    task_type: str = "debate"
+
+
+@router.post("/debate/run")
+async def run_debate(
+    body: DebateRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.workflows import build_debate_workflow
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.7, max_tokens=4096)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.5, max_tokens=2048)
+
+    workflow = build_debate_workflow(heavy_llm=heavy_llm, fast_llm=fast_llm)
+
+    result = await workflow.ainvoke({
+        "messages": [],
+        "case_description": body.case_description,
+        "evidence_summary": body.evidence_summary,
+        "task_type": body.task_type,
+        "kfe": {},
+        "evidence_sufficient": True,
+        "interrupt_reason": "",
+        "focus_points": "",
+        "plaintiff_opening": "",
+        "defendant_opening": "",
+        "current_round": 0,
+        "plaintiff_args": [],
+        "defendant_args": [],
+        "judge_comments": [],
+        "converged": False,
+        "convergence_reason": "",
+        "verdict": "",
+        "judgment_report": "",
+        "plain_language_version": "",
+        "legal_knowledge": "",
+        "final_result": "",
+        "structured_summary": {},
+    })
+
+    return {
+        "result": result.get("final_result", ""),
+        "verdict": result.get("verdict", ""),
+        "judgment_report": result.get("judgment_report", ""),
+        "plain_language": result.get("plain_language_version", ""),
+        "convergence_reason": result.get("convergence_reason", ""),
+        "kfe": result.get("kfe", {}),
+        "evidence_sufficient": result.get("evidence_sufficient", True),
+        "interrupt_reason": result.get("interrupt_reason", ""),
+    }
+
+
+@router.post("/debate/stream")
+async def stream_debate(
+    body: DebateRequest,
+    request: Request,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.workflows import build_debate_workflow
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.7, max_tokens=4096, streaming=True)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.5, max_tokens=2048, streaming=True)
+
+    workflow = build_debate_workflow(heavy_llm=heavy_llm, fast_llm=fast_llm)
+
+    async def event_generator():
+        try:
+            async for event in workflow.astream_events(
+                {
+                    "messages": [],
+                    "case_description": body.case_description,
+                    "evidence_summary": body.evidence_summary,
+                    "task_type": body.task_type,
+                    "kfe": {},
+                    "evidence_sufficient": True,
+                    "interrupt_reason": "",
+                    "focus_points": "",
+                    "plaintiff_opening": "",
+                    "defendant_opening": "",
+                    "current_round": 0,
+                    "plaintiff_args": [],
+                    "defendant_args": [],
+                    "judge_comments": [],
+                    "converged": False,
+                    "convergence_reason": "",
+                    "verdict": "",
+                    "judgment_report": "",
+                    "plain_language_version": "",
+                    "legal_knowledge": "",
+                    "final_result": "",
+                },
+                version="v2",
+            ):
+                if await request.is_disconnected():
+                    break
+
+                kind = event.get("event", "")
+                node_name = event.get("name", "")
+
+                if kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and chunk.content:
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "node": node_name,
+                                "content": chunk.content,
+                            }, ensure_ascii=False),
+                        }
+
+                elif kind == "on_chain_end" and node_name in ("extract_kfe", "retrieve_knowledge"):
+                    output = event.get("data", {}).get("output", {})
+                    yield {
+                        "event": "metadata",
+                        "data": json.dumps({
+                            "type": node_name,
+                            "node": node_name,
+                            "kfe": output.get("kfe") if node_name == "extract_kfe" else None,
+                            "legal_knowledge": output.get("legal_knowledge") if node_name == "retrieve_knowledge" else None,
+                        }, ensure_ascii=False, default=str),
+                    }
+
+                elif kind == "on_chain_end" and node_name == "finalize":
+                    output = event.get("data", {}).get("output", {})
+                    structured = output.get("structured_summary") or {}
+                    yield {
+                        "event": "done",
+                        "data": json.dumps({
+                            "status": "completed",
+                            "final_result": output.get("final_result", ""),
+                            "verdict": output.get("verdict", ""),
+                            "judgment_report": output.get("judgment_report", ""),
+                            "plain_language": output.get("plain_language_version", ""),
+                            "convergence_reason": output.get("convergence_reason", ""),
+                            "kfe": output.get("kfe", {}),
+                            "evidence_sufficient": output.get("evidence_sufficient", True),
+                            "interrupt_reason": output.get("interrupt_reason", ""),
+                            "structured_summary": structured,
+                        }, ensure_ascii=False, default=str),
+                    }
+
+        except Exception as e:
+            logger.error(f"Debate stream error: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}, ensure_ascii=False),
+            }
+
+    return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
+
+
+@router.post("/debate/kfe")
+async def extract_kfe_only(
+    body: DebateRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.legal import extract_kfe
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=1024)
+
+    kfe = await extract_kfe(
+        case_description=body.case_description,
+        evidence_summary=body.evidence_summary,
+        llm=llm,
+    )
+
+    from ..services.legal import check_evidence_sufficiency
+    sufficient, reason = check_evidence_sufficiency(kfe)
+
+    return {
+        "kfe": kfe,
+        "evidence_sufficient": sufficient,
+        "interrupt_reason": reason if not sufficient else "",
+    }
+
+
+class ContractReviewRequest(BaseModel):
+    contract_text: str
+    user_position: str = "乙方"
+    review_stance: str = "常规"
+
+
+@router.post("/contract/review")
+async def review_contract(
+    body: ContractReviewRequest,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.workflows import build_contract_review_workflow
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.5, max_tokens=4096)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=2048)
+
+    workflow = build_contract_review_workflow(heavy_llm=heavy_llm, fast_llm=fast_llm)
+
+    result = await workflow.ainvoke({
+        "contract_text": body.contract_text,
+        "user_position": body.user_position,
+        "review_stance": body.review_stance,
+        "classification": {},
+        "risks": {},
+        "report": "",
+        "summary": {},
+        "final_result": "",
+        "structured_review": {},
+    })
+
+    return {
+        "summary": result.get("summary", {}),
+        "report": result.get("report", ""),
+        "classification": result.get("classification", {}),
+        "risks": result.get("risks", {}),
+    }
+
+
+@router.post("/contract/review/stream")
+async def review_contract_stream(
+    body: ContractReviewRequest,
+    request: Request,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.workflows import build_contract_review_workflow
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    heavy_llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.5, max_tokens=4096)
+    fast_llm = llm_client.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=2048)
+
+    workflow = build_contract_review_workflow(heavy_llm=heavy_llm, fast_llm=fast_llm)
+
+    async def event_generator():
+        try:
+            async for event in workflow.astream_events(
+                {
+                    "contract_text": body.contract_text,
+                    "user_position": body.user_position,
+                    "review_stance": body.review_stance,
+                    "classification": {},
+                    "risks": {},
+                    "report": "",
+                    "summary": {},
+                    "final_result": "",
+                },
+                version="v2",
+            ):
+                if await request.is_disconnected():
+                    break
+
+                kind = event.get("event", "")
+                node_name = event.get("name", "")
+
+                if kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and chunk.content:
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "node": node_name,
+                                "content": chunk.content,
+                            }, ensure_ascii=False),
+                        }
+
+                elif kind == "on_chain_end" and node_name == "classify":
+                    output = event.get("data", {}).get("output", {})
+                    classification = output.get("classification") or {}
+                    yield {
+                        "event": "metadata",
+                        "data": json.dumps({
+                            "type": "classify",
+                            "clauses": classification.get("auto_clauses", []),
+                            "contract_type": classification.get("contract_type"),
+                            "readability": classification.get("readability", {}),
+                        }, ensure_ascii=False, default=str),
+                    }
+
+                elif kind == "on_chain_end" and node_name == "scan_risks":
+                    output = event.get("data", {}).get("output", {})
+                    risks = output.get("risks") or {}
+                    yield {
+                        "event": "metadata",
+                        "data": json.dumps({
+                            "type": "risks",
+                            "meso_issues": risks.get("meso_issues", []),
+                            "micro_issues": risks.get("micro_issues", []),
+                            "loopholes": risks.get("loopholes", []),
+                            "missing_clauses": risks.get("missing_clauses", []),
+                        }, ensure_ascii=False, default=str),
+                    }
+
+                elif kind == "on_chain_end" and node_name == "finalize":
+                    output = event.get("data", {}).get("output", {})
+                    structured = output.get("structured_review") or {}
+                    yield {
+                        "event": "done",
+                        "data": json.dumps({
+                            "status": "completed",
+                            "summary": output.get("summary", {}),
+                            "report": output.get("report", ""),
+                            "structured_review": structured,
+                        }, ensure_ascii=False, default=str),
+                    }
+
+        except Exception as e:
+            logger.error(f"Contract review stream error: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}, ensure_ascii=False),
+            }
+
+    return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
+
+
+@router.post("/contract/draft-clause")
+async def draft_contract_clause(
+    body: dict,
+    user: dict = Depends(check_rate_limit),
+):
+    from ..services.agents import ContractReviewSkill
+    from ..core.llm_client import get_llm_client
+
+    llm_client = get_llm_client()
+    llm = llm_client.get_chat_model(model="deepseek-v4-pro", temperature=0.5, max_tokens=2048)
+
+    skill = ContractReviewSkill(llm)
+    result = await skill.draft_clause(
+        clause_type=body.get("clause_type", ""),
+        context=body.get("context", ""),
+        user_position=body.get("user_position", "乙方"),
+    )
+
+    return {"clause": result}

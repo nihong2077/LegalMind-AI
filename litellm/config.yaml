@@ -1,48 +1,36 @@
 model_list:
-  - model_name: gemma4-9b
-    litellm_params:
-      model: openai/gemma4-9b
-      api_base: http://vllm:8000/v1
-      api_key: os.environ/VLLM_API_KEY
-      rpm: 30
-      tpm: 100000
-    model_info:
-      mode: chat
-      description: "Gemma4-9B AWQ4bit 本地模型"
-
-  - model_name: qwen3-1.5b
-    litellm_params:
-      model: openai/qwen3-1.5b
-      api_base: http://vllm:8000/v1
-      api_key: os.environ/VLLM_API_KEY
-      rpm: 60
-      tpm: 200000
-    model_info:
-      mode: chat
-      description: "Qwen3-1.5B INT8 本地模型"
-
-  - model_name: deepseek-chat
+  - model_name: deepseek-v4-pro
     litellm_params:
       model: deepseek/deepseek-chat
       api_key: os.environ/DEEPSEEK_API_KEY
       rpm: 10
-      tpm: 50000
+      tpm: 100000
     model_info:
       mode: chat
-      description: "DeepSeek Chat 云端模型"
+      description: "DeepSeek V4 Pro - 大型法律分析、合同审查"
+
+  - model_name: deepseek-flash
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+      rpm: 30
+      tpm: 200000
+    model_info:
+      mode: chat
+      description: "DeepSeek Flash - 快速法律检索、简单问答"
 
 router_settings:
   routing_strategy: usage-based-routing-v2
   allowed_fails: 3
   cooldown_time: 60
   num_retries: 2
-  timeout: 30
+  timeout: 60
   retry_after: 0
   fallbacks:
-    - gemma4-9b:
-        - deepseek-chat
-    - qwen3-1.5b:
-        - gemma4-9b
+    - deepseek-v4-pro:
+        - deepseek-flash
+    - deepseek-flash:
+        - deepseek-v4-pro
 
 litellm_settings:
   drop_params: true
