@@ -930,6 +930,7 @@ async def run_debate(
         "focus_points": "",
         "plaintiff_opening": "",
         "defendant_opening": "",
+        "court_investigation": "",
         "current_round": 0,
         "plaintiff_args": [],
         "defendant_args": [],
@@ -985,6 +986,7 @@ async def stream_debate(
                     "focus_points": "",
                     "plaintiff_opening": "",
                     "defendant_opening": "",
+                    "court_investigation": "",
                     "current_round": 0,
                     "plaintiff_args": [],
                     "defendant_args": [],
@@ -996,6 +998,7 @@ async def stream_debate(
                     "plain_language_version": "",
                     "legal_knowledge": "",
                     "final_result": "",
+                    "structured_summary": {},
                 },
                 version="v2",
             ):

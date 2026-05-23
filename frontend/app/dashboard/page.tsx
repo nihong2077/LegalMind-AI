@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
-import { MessageSquare, FileText, BookOpen, TrendingUp, Plus } from 'lucide-react'
+import { MessageSquare, FileText, BookOpen, TrendingUp, Plus, FolderOpen, Gavel } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { getDashboardStats, getRecentCases, type DashboardStats, type CaseItem } from '@/app/lib/api'
@@ -26,8 +26,23 @@ export default function DashboardPage() {
   const [cases, setCases] = useState<CaseItem[]>([])
   const [loading, setLoading] = useState(true)
 
+  // 从 localStorage 加载本地案件
+  function loadLocalCases(): CaseItem[] {
+    if (typeof window === 'undefined') return []
+    try {
+      const courtRaw = localStorage.getItem('legalmind_court_cases')
+      const chatRaw = localStorage.getItem('legalmind_chat_history')
+      const court: Array<{ id: string; title: string; createdAt: string }> = courtRaw ? JSON.parse(courtRaw) : []
+      const chat: Array<{ id: string; title: string; createdAt: string }> = chatRaw ? JSON.parse(chatRaw) : []
+      return [...court.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') })),
+              ...chat.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') }))]
+        .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 5)
+    } catch { return [] }
+  }
+
   useEffect(() => {
     if (!authed) {
+      setCases(loadLocalCases())
       setLoading(false)
       return
     }
@@ -42,9 +57,9 @@ export default function DashboardPage() {
         getRecentCases(),
       ])
       setStats(statsData)
-      setCases(casesData)
+      setCases(casesData.length > 0 ? casesData : loadLocalCases())
     } catch {
-      // 未登录或 API 不可用，使用默认值
+      setCases(loadLocalCases())
     } finally {
       setLoading(false)
     }
@@ -125,11 +140,13 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gold-200">最近案件</h3>
-              {authed && cases.length > 0 && (
-                <Link href="/chat" className="text-xs text-gold-400 hover:text-gold-300 flex items-center gap-1">
-                  <Plus size={12} /> 新建
-                </Link>
-              )}
+              <div className="flex items-center gap-2">
+                {authed && cases.length > 0 && (
+                  <Link href="/cases" className="text-xs text-gold-400 hover:text-gold-300 flex items-center gap-1">
+                    <FolderOpen size={12} /> 全部案件
+                  </Link>
+                )}
+              </div>
             </div>
             {cases.length > 0 ? (
               <div className="space-y-3">
@@ -154,9 +171,14 @@ export default function DashboardPage() {
                   {authed ? '暂无案件记录' : '请先登录查看案件'}
                 </p>
                 {authed && (
-                  <Link href="/chat" className="text-xs text-gold-400 hover:text-gold-300">
-                    开始 AI 对话创建案件
-                  </Link>
+                  <div className="flex flex-col items-center gap-2">
+                    <Link href="/court" className="text-xs text-gold-400 hover:text-gold-300 flex items-center gap-1">
+                      <Gavel size={12} /> 开始模拟法庭
+                    </Link>
+                    <Link href="/cases" className="text-xs text-gold-200/40 hover:text-gold-200/60 flex items-center gap-1">
+                      <FolderOpen size={12} /> 查看案件记忆
+                    </Link>
+                  </div>
                 )}
               </div>
             )}

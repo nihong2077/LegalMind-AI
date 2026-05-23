@@ -162,6 +162,7 @@ function buildRightPanelData(messages: Message[]): RightPanelData {
 }
 
 const STORAGE_KEY = 'legalmind_sessions'
+const CHAT_HISTORY_KEY = 'legalmind_chat_history'  // 供案件记忆页面使用
 const MAX_CONTEXT_MESSAGES = 20
 
 function loadSessions(): Session[] {
@@ -464,6 +465,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== id)
       saveSessions(sessions)
+
+      // 同步删除案件记忆
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(CHAT_HISTORY_KEY)
+          const histories = raw ? JSON.parse(raw) : []
+          localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(histories.filter((h: { id: string }) => h.id !== id)))
+        } catch { /* storage full */ }
+      }
+
       if (state.currentSessionId === id) {
         const newCurrent = sessions[0]?.id || null
         const newMessages = sessions[0]?.messages || []
@@ -506,6 +517,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       saveSessions(sessions)
+
+      // 同步保存到案件记忆存储
+      if (typeof window !== 'undefined' && state.messages.length > 0) {
+        try {
+          const raw = localStorage.getItem(CHAT_HISTORY_KEY)
+          const histories = raw ? JSON.parse(raw) : []
+          const existing = histories.findIndex((h: { id: string }) => h.id === state.currentSessionId)
+          const entry = {
+            id: state.currentSessionId,
+            title,
+            messages: state.messages.map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp.toISOString() })),
+            createdAt: new Date().toISOString(),
+          }
+          if (existing >= 0) histories[existing] = entry
+          else histories.unshift(entry)
+          localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(histories.slice(0, 50)))
+        } catch { /* storage full */ }
+      }
+
       return { sessions }
     })
   },

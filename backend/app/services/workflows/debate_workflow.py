@@ -1,11 +1,11 @@
 """
 LangGraph 多轮辩论工作流。
 
-流程：
-  收集案情 → KFE提取 → 证据检查(不足→中断) → 法官开庭
-  → 原告陈述 → 被告陈述
-  → 辩论循环(原告反驳→被告反驳→法官点评→收敛判定)
-  → 法官裁决 → 判决书生成 → 白话化翻译(可选)
+流程（增强版 — 融合 IRAC 框架 + 主动式法官）：
+  收集案情 → KFE提取 → 证据检查(不足→中断) → 法律检索
+  → 法官开庭(归纳焦点) → 原告陈述 → 被告陈述
+  → 法庭调查(法官追问) → 辩论循环(原告反驳→被告反驳→法官点评→收敛判定)
+  → 法官裁决(IRAC) → 判决书生成 → 白话化翻译(可选) → 汇总
 """
 
 import json
@@ -15,7 +15,7 @@ from typing import Annotated, Literal, TypedDict
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 
 from ..agents.judge_skill import JudgeSkill
 from ..agents.plaintiff_skill import PlaintiffSkill
@@ -46,6 +46,9 @@ class DebateWorkflowState(TypedDict):
     focus_points: str
     plaintiff_opening: str
     defendant_opening: str
+
+    # 法庭调查阶段
+    court_investigation: str
 
     current_round: int
     plaintiff_args: list[str]
@@ -104,28 +107,27 @@ async def retrieve_knowledge_node(state: DebateWorkflowState, llm: BaseChatModel
 
 
 async def judge_opening_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点4: 法官开庭，归纳争议焦点"""
+    """节点4: 法官开庭，归纳争议焦点（增强版：注入 KFE + 法律知识）"""
     logger.info("法官开庭...")
     judge = JudgeSkill(llm)
     opening = await judge.preside_opening(
         plaintiff_claim=state["case_description"],
         defendant_response=state.get("evidence_summary", ""),
+        kfe=state.get("kfe"),
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
     return {"focus_points": opening, "messages": [AIMessage(content=f"【法官开庭】\n{opening}")]}
 
 
 async def plaintiff_opening_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点5: 原告律师开庭陈述"""
+    """节点5: 原告律师开庭陈述（增强版：注入法律知识）"""
     logger.info("原告律师陈述...")
     lawyer = PlaintiffSkill(llm)
-    context = state.get("legal_knowledge", "")
-    full_facts = state["case_description"]
-    if context:
-        full_facts = f"{full_facts}\n\n{context}"
 
     opening = await lawyer.opening_statement(
-        case_facts=full_facts,
+        case_facts=state["case_description"],
         focus_points=state.get("focus_points", ""),
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
     return {
         "plaintiff_opening": opening,
@@ -135,18 +137,15 @@ async def plaintiff_opening_node(state: DebateWorkflowState, llm: BaseChatModel)
 
 
 async def defendant_opening_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点6: 被告律师开庭陈述"""
+    """节点6: 被告律师开庭陈述（增强版：注入法律知识）"""
     logger.info("被告律师陈述...")
     lawyer = DefendantSkill(llm)
-    context = state.get("legal_knowledge", "")
-    full_facts = state["case_description"]
-    if context:
-        full_facts = f"{full_facts}\n\n{context}"
 
     opening = await lawyer.opening_statement(
-        case_facts=full_facts,
+        case_facts=state["case_description"],
         plaintiff_claim=state.get("plaintiff_opening", state["case_description"]),
         focus_points=state.get("focus_points", ""),
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
     return {
         "defendant_opening": opening,
@@ -155,18 +154,48 @@ async def defendant_opening_node(state: DebateWorkflowState, llm: BaseChatModel)
     }
 
 
+async def court_investigation_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
+    """节点7: 法庭调查 — 法官主动追问关键事实"""
+    logger.info("法庭调查...")
+    judge = JudgeSkill(llm)
+    investigation = await judge.court_investigation(
+        focus_points=state.get("focus_points", ""),
+        plaintiff_opening=state.get("plaintiff_opening", ""),
+        defendant_opening=state.get("defendant_opening", ""),
+        kfe=state.get("kfe"),
+    )
+    return {
+        "court_investigation": investigation,
+        "messages": [AIMessage(content=f"【法庭调查】\n{investigation}")],
+    }
+
+
 async def plaintiff_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点7: 原告律师反驳"""
+    """节点8: 原告律师反驳（增强版：辩论历史+法官点评+法律知识）"""
     round_num = state.get("current_round", 0) + 1
     logger.info("原告反驳 第%d轮...", round_num)
 
     lawyer = PlaintiffSkill(llm)
     last_defendant = state["defendant_args"][-1] if state["defendant_args"] else ""
 
+    # 将法庭调查的问题融入反驳上下文
+    investigation = state.get("court_investigation", "")
+    case_facts = state["case_description"]
+    if investigation:
+        case_facts = f"{case_facts}\n\n法庭调查要点：{investigation[:500]}"
+
+    # 获取最新法官点评
+    judge_comments = state.get("judge_comments", [])
+    last_judge_comment = judge_comments[-1] if judge_comments else ""
+
     rebuttal = await lawyer.rebuttal(
         defendant_arg=last_defendant,
-        case_facts=state["case_description"],
+        case_facts=case_facts,
         round_num=round_num,
+        plaintiff_args=state.get("plaintiff_args", []),
+        defendant_args=state.get("defendant_args", []),
+        judge_comment=last_judge_comment,
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
 
     plaintiff_args = list(state.get("plaintiff_args", []))
@@ -180,17 +209,31 @@ async def plaintiff_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel
 
 
 async def defendant_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点8: 被告律师反驳"""
+    """节点9: 被告律师反驳（增强版：辩论历史+法官点评+法律知识）"""
     round_num = state.get("current_round", 1)
     logger.info("被告反驳 第%d轮...", round_num)
 
     lawyer = DefendantSkill(llm)
     last_plaintiff = state["plaintiff_args"][-1] if state["plaintiff_args"] else ""
 
+    # 将法庭调查的问题融入反驳上下文
+    investigation = state.get("court_investigation", "")
+    case_facts = state["case_description"]
+    if investigation:
+        case_facts = f"{case_facts}\n\n法庭调查要点：{investigation[:500]}"
+
+    # 获取最新法官点评
+    judge_comments = state.get("judge_comments", [])
+    last_judge_comment = judge_comments[-1] if judge_comments else ""
+
     rebuttal = await lawyer.rebuttal(
         plaintiff_arg=last_plaintiff,
-        case_facts=state["case_description"],
+        case_facts=case_facts,
         round_num=round_num,
+        plaintiff_args=state.get("plaintiff_args", []),
+        defendant_args=state.get("defendant_args", []),
+        judge_comment=last_judge_comment,
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
 
     defendant_args = list(state.get("defendant_args", []))
@@ -203,7 +246,7 @@ async def defendant_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel
 
 
 async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点9: 法官点评本轮辩论"""
+    """节点10: 法官点评本轮辩论（增强版：传递历史点评 + 法律知识）"""
     round_num = state.get("current_round", 1)
     logger.info("法官点评 第%d轮...", round_num)
 
@@ -213,6 +256,8 @@ async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
         defendant_arg=state["defendant_args"][-1] if state["defendant_args"] else "",
         focus_points=state.get("focus_points", ""),
         round_num=round_num,
+        judge_comments_history=state.get("judge_comments", []),
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
 
     judge_comments = list(state.get("judge_comments", []))
@@ -225,7 +270,7 @@ async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
 
 
 async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel) -> dict:
-    """节点10: 收敛判定"""
+    """节点11: 收敛判定"""
     round_num = state.get("current_round", 1)
 
     last_p = state["plaintiff_args"][-1] if state["plaintiff_args"] else ""
@@ -239,8 +284,6 @@ async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel
     kfe = state.get("kfe", {})
     if kfe:
         from ..legal.kfe_extractor import compare_kfe
-        # 分别从原告和被告陈述中提取的 KFE 进行比较
-        # 当前状态模型只有单一 kfe，需要从双方论点中分别提取
         plaintiff_args = state.get("plaintiff_args", [])
         defendant_args = state.get("defendant_args", [])
         if plaintiff_args and defendant_args:
@@ -266,7 +309,7 @@ async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel
 
 
 async def judge_verdict_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点11: 法官最终裁决"""
+    """节点12: 法官最终裁决（增强版：IRAC 框架 + 法条注入）"""
     logger.info("法官作出最终裁决...")
     judge = JudgeSkill(llm)
 
@@ -275,6 +318,8 @@ async def judge_verdict_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
         defendant_args=state.get("defendant_args", []),
         kfe=state.get("kfe", {}),
         focus_points=state.get("focus_points", ""),
+        judge_comments=state.get("judge_comments", []),
+        legal_knowledge=state.get("legal_knowledge", ""),
     )
 
     return {
@@ -284,7 +329,7 @@ async def judge_verdict_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
 
 
 async def judgment_report_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点12: 生成判决书"""
+    """节点13: 生成判决书"""
     logger.info("生成判决书...")
     reporter = JudgmentReportSkill(llm)
 
@@ -308,7 +353,7 @@ async def judgment_report_node(state: DebateWorkflowState, llm: BaseChatModel) -
 
 
 async def plain_language_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点13: 白话化翻译"""
+    """节点14: 白话化翻译"""
     logger.info("生成白话版本...")
     source = state.get("judgment_report") or state.get("verdict", "")
     if not source:
@@ -322,7 +367,7 @@ async def plain_language_node(state: DebateWorkflowState, llm: BaseChatModel) ->
 
 
 async def finalize_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点14: 汇总最终结果 + 用v4-flash生成结构化分析报告"""
+    """节点15: 汇总最终结果 + 用v4-flash生成结构化分析报告"""
     parts = []
 
     if state.get("verdict"):
@@ -349,6 +394,9 @@ async def finalize_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
 
 【争议焦点】
 {state.get('focus_points', '')[:1000]}
+
+【法庭调查】
+{state.get('court_investigation', '')[:500]}
 
 【原告主要论点】
 {"；".join(state.get('plaintiff_args', [])[-3:])[:1500]}
@@ -455,11 +503,11 @@ def build_debate_workflow(
     fast_llm: BaseChatModel | None = None,
 ) -> StateGraph:
     """
-    构建多轮辩论工作流。
+    构建多轮辩论工作流（增强版）。
 
     模型分配：
-    - KFE提取、法官开庭/裁决、律师陈述/反驳 → heavy_llm (V4 Pro)
-    - 法律检索、白话翻译 → fast_llm (Flash)
+    - KFE提取、法官开庭/调查/点评/裁决、律师陈述/反驳 → heavy_llm (V4 Pro)
+    - 法律检索、白话翻译、结构化报告 → fast_llm (Flash)
     """
     _fast = fast_llm or heavy_llm
 
@@ -482,6 +530,9 @@ def build_debate_workflow(
 
     async def _defendant_opening(state: DebateWorkflowState) -> dict:
         return await defendant_opening_node(state, heavy_llm)
+
+    async def _court_investigation(state: DebateWorkflowState) -> dict:
+        return await court_investigation_node(state, heavy_llm)
 
     async def _plaintiff_rebuttal(state: DebateWorkflowState) -> dict:
         return await plaintiff_rebuttal_node(state, heavy_llm)
@@ -507,12 +558,14 @@ def build_debate_workflow(
     async def _finalize(state: DebateWorkflowState) -> dict:
         return await finalize_node(state, _fast)
 
+    # 注册节点
     graph.add_node("extract_kfe", _extract_kfe)
     graph.add_node("check_evidence", _check_evidence)
     graph.add_node("retrieve_knowledge", _retrieve_knowledge)
     graph.add_node("judge_opening", _judge_opening)
     graph.add_node("plaintiff_opening", _plaintiff_opening)
     graph.add_node("defendant_opening", _defendant_opening)
+    graph.add_node("court_investigation", _court_investigation)
     graph.add_node("plaintiff_rebuttal", _plaintiff_rebuttal)
     graph.add_node("defendant_rebuttal", _defendant_rebuttal)
     graph.add_node("judge_comment", _judge_comment)
@@ -522,8 +575,10 @@ def build_debate_workflow(
     graph.add_node("plain_language", _plain_language)
     graph.add_node("finalize", _finalize)
 
+    # 设置入口
     graph.set_entry_point("extract_kfe")
 
+    # 定义边
     graph.add_edge("extract_kfe", "check_evidence")
     graph.add_conditional_edges("check_evidence", route_after_evidence, {
         "retrieve_knowledge": "retrieve_knowledge",
@@ -533,7 +588,10 @@ def build_debate_workflow(
     graph.add_edge("retrieve_knowledge", "judge_opening")
     graph.add_edge("judge_opening", "plaintiff_opening")
     graph.add_edge("plaintiff_opening", "defendant_opening")
-    graph.add_edge("defendant_opening", "plaintiff_rebuttal")
+    # 新增：被告陈述后进入法庭调查
+    graph.add_edge("defendant_opening", "court_investigation")
+    # 法庭调查后进入辩论循环
+    graph.add_edge("court_investigation", "plaintiff_rebuttal")
     graph.add_edge("plaintiff_rebuttal", "defendant_rebuttal")
     graph.add_edge("defendant_rebuttal", "judge_comment")
     graph.add_edge("judge_comment", "convergence_check")

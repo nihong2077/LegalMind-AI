@@ -34,3 +34,13 @@ Thumbs.db
 
 .trae/
 .nvm
+
+# 大型数据文件
+data/law/laws.json
+data/law/laws.json.zip
+data/lawyer/CAIL2018_ALL_DATA.zip
+data/lawyer/CAIL2018_ALL_DATA.zip:Zone.Identifier
+data/lawyer/cleaned/
+data/judge/cleaned/
+data/judge/*.txt
+*.json.zip
