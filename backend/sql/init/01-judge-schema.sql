@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS judge_cases (
     judgment_reasoning TEXT,
     judgment_result TEXT,
     applicable_laws TEXT,
-    keywords TEXT[] DEFAULT '{}',
+    keywords JSONB DEFAULT '[]',
     embedding vector(1024),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW(),

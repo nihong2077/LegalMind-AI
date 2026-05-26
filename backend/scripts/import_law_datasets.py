@@ -365,14 +365,14 @@ def _split_by_length(law: dict, content: str, max_length: int = 500) -> list[dic
     return records
 
 
-def _parse_date(date_str: str) -> Optional[str]:
-    """解析日期字符串"""
+def _parse_date(date_str: str):
+    """解析日期字符串，返回 date 对象或 None"""
     if not date_str or not date_str.strip():
         return None
     try:
         # 格式: "2018-03-11 00:00:00"
         dt = datetime.strptime(date_str.strip()[:10], "%Y-%m-%d")
-        return dt.strftime("%Y-%m-%d")
+        return dt.date()
     except (ValueError, IndexError):
         return None
 
@@ -458,7 +458,7 @@ async def write_to_pg(records: list[dict]):
                     status=r.get("status", "active"),
                     keywords=r.get("keywords", []),
                     embedding=r.get("embedding"),
-                    metadata=r.get("metadata", {}),
+                    source_metadata=r.get("metadata", {}),
                 )
                 session.add(row)
             await session.commit()
@@ -477,7 +477,7 @@ async def write_to_pg(records: list[dict]):
                     related_laws="",
                     keywords=r.get("keywords", []),
                     embedding=r.get("embedding"),
-                    metadata=r.get("metadata", {}),
+                    source_metadata=r.get("metadata", {}),
                 )
                 session.add(row)
             await session.commit()
@@ -496,7 +496,7 @@ async def write_to_pg(records: list[dict]):
                     category=r.get("law_type", ""),
                     keywords=r.get("keywords", []),
                     embedding=r.get("embedding"),
-                    metadata=r.get("metadata", {}),
+                    source_metadata=r.get("metadata", {}),
                 )
                 session.add(row)
             await session.commit()
@@ -620,13 +620,17 @@ async def main(
     for table, count in table_counts.most_common():
         logger.info("  → %s: %d 条", table, count)
 
-    # 3. 生成嵌入
-    logger.info("步骤 3/5: 生成向量嵌入...")
-    await generate_embeddings(all_records, batch_size=batch_size)
+    # 3. 生成嵌入（仅 Qdrant 需要）
+    if not skip_qdrant:
+        logger.info("步骤 3/5: 生成向量嵌入...")
+        await generate_embeddings(all_records, batch_size=batch_size)
+        logger.info("嵌入生成完成: %d/%d 条成功",
+                    sum(1 for r in all_records if r.get("embedding")), len(all_records))
+    else:
+        logger.info("步骤 3/5: 跳过向量嵌入（--skip-qdrant）")
 
-    # 过滤掉嵌入失败的记录
-    valid_records = [r for r in all_records if r.get("embedding") is not None]
-    logger.info("嵌入生成完成: %d/%d 条成功", len(valid_records), len(all_records))
+    # 过滤掉嵌入失败的记录（即使跳过嵌入，PG 也接受无嵌入记录）
+    valid_records = all_records
 
     # 4. 写入 PostgreSQL
     if not skip_pg:

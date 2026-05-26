@@ -974,66 +974,124 @@ async def stream_debate(
 
     async def event_generator():
         try:
-            async for event in workflow.astream_events(
-                {
-                    "messages": [],
-                    "case_description": body.case_description,
-                    "evidence_summary": body.evidence_summary,
-                    "task_type": body.task_type,
-                    "kfe": {},
-                    "evidence_sufficient": True,
-                    "interrupt_reason": "",
-                    "focus_points": "",
-                    "plaintiff_opening": "",
-                    "defendant_opening": "",
-                    "court_investigation": "",
-                    "current_round": 0,
-                    "plaintiff_args": [],
-                    "defendant_args": [],
-                    "judge_comments": [],
-                    "converged": False,
-                    "convergence_reason": "",
-                    "verdict": "",
-                    "judgment_report": "",
-                    "plain_language_version": "",
-                    "legal_knowledge": "",
-                    "final_result": "",
-                    "structured_summary": {},
-                },
-                version="v2",
-            ):
+            input_state = {
+                "messages": [],
+                "case_description": body.case_description,
+                "evidence_summary": body.evidence_summary,
+                "task_type": body.task_type,
+                "kfe": {},
+                "evidence_sufficient": True,
+                "interrupt_reason": "",
+                "focus_points": "",
+                "plaintiff_opening": "",
+                "defendant_opening": "",
+                "court_investigation": "",
+                "current_round": 0,
+                "plaintiff_args": [],
+                "defendant_args": [],
+                "judge_comments": [],
+                "converged": False,
+                "convergence_reason": "",
+                "verdict": "",
+                "judgment_report": "",
+                "plain_language_version": "",
+                "legal_knowledge": "",
+                "final_result": "",
+                "structured_summary": {},
+            }
+
+            # 辩论发言节点：这些节点的输出需要流式展示给前端
+            SPEECH_NODES = {
+                "judge_opening", "plaintiff_opening", "defendant_opening",
+                "court_investigation", "plaintiff_rebuttal", "defendant_rebuttal",
+                "judge_comment", "judge_verdict", "judgment_report", "plain_language",
+            }
+
+            # 使用 astream（节点级输出）替代 astream_events（token 级事件）
+            # stream_mode="updates" 返回 {node_name: output} 字典
+            async for chunk in workflow.astream(input_state, stream_mode="updates"):
                 if await request.is_disconnected():
                     break
 
-                kind = event.get("event", "")
-                node_name = event.get("name", "")
+                if not isinstance(chunk, dict) or len(chunk) != 1:
+                    continue
 
-                if kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and chunk.content:
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({
-                                "node": node_name,
-                                "content": chunk.content,
-                            }, ensure_ascii=False),
-                        }
+                node_name, output = next(iter(chunk.items()))
 
-                elif kind == "on_chain_end" and node_name in ("extract_kfe", "retrieve_knowledge"):
-                    output = event.get("data", {}).get("output", {})
+                # KFE 提取完成 → 发送 metadata
+                if node_name == "extract_kfe" and output.get("kfe"):
                     yield {
                         "event": "metadata",
                         "data": json.dumps({
-                            "type": node_name,
+                            "type": "extract_kfe",
                             "node": node_name,
-                            "kfe": output.get("kfe") if node_name == "extract_kfe" else None,
-                            "legal_knowledge": output.get("legal_knowledge") if node_name == "retrieve_knowledge" else None,
+                            "kfe": output.get("kfe"),
                         }, ensure_ascii=False, default=str),
                     }
 
-                elif kind == "on_chain_end" and node_name == "finalize":
-                    output = event.get("data", {}).get("output", {})
+                # 法律检索完成 → 发送 metadata
+                elif node_name == "retrieve_knowledge" and output.get("legal_knowledge"):
+                    yield {
+                        "event": "metadata",
+                        "data": json.dumps({
+                            "type": "retrieve_knowledge",
+                            "node": node_name,
+                            "legal_knowledge": output.get("legal_knowledge"),
+                        }, ensure_ascii=False, default=str),
+                    }
+
+                # 辩论发言节点 → 逐字符模拟流式输出消息
+                elif node_name in SPEECH_NODES:
+                    # 从 messages 或对应字段提取发言内容
+                    content = ""
+                    field_map = {
+                        "judge_opening": "focus_points",
+                        "plaintiff_opening": "plaintiff_opening",
+                        "defendant_opening": "defendant_opening",
+                        "court_investigation": "court_investigation",
+                        "plaintiff_rebuttal": None,
+                        "defendant_rebuttal": None,
+                        "judge_comment": None,
+                        "judge_verdict": "verdict",
+                        "judgment_report": "judgment_report",
+                        "plain_language": "plain_language_version",
+                    }
+                    field = field_map.get(node_name)
+                    if field and output.get(field):
+                        content = output[field]
+                    else:
+                        msgs = output.get("messages", [])
+                        if msgs:
+                            content = msgs[-1].content if hasattr(msgs[-1], 'content') else str(msgs[-1])
+
+                    if content:
+                        # 模拟流式：按句子分块发送
+                        import re
+                        sentences = re.split(r'(?<=[。！？\n])', content)
+                        for sentence in sentences:
+                            if sentence.strip():
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps({
+                                        "node": node_name,
+                                        "content": sentence,
+                                    }, ensure_ascii=False),
+                                }
+
+                # 最终汇总节点 → 发送 done 事件
+                elif node_name == "finalize":
                     structured = output.get("structured_summary") or {}
+                    # 确保 structured_summary 中包含 kfe 和法律知识
+                    if not structured.get("kfe_items") and output.get("kfe"):
+                        kfe_raw = output.get("kfe", {})
+                        kfe_list = []
+                        for k, v in kfe_raw.items():
+                            if isinstance(v, dict):
+                                for sk, sv in v.items():
+                                    kfe_list.append({"label": f"{k}-{sk}", "value": str(sv), "status": "verified"})
+                            else:
+                                kfe_list.append({"label": k, "value": str(v), "status": "verified"})
+                        structured["kfe_items"] = kfe_list
                     yield {
                         "event": "done",
                         "data": json.dumps({
@@ -1044,6 +1102,7 @@ async def stream_debate(
                             "plain_language": output.get("plain_language_version", ""),
                             "convergence_reason": output.get("convergence_reason", ""),
                             "kfe": output.get("kfe", {}),
+                            "legal_knowledge": output.get("legal_knowledge", ""),
                             "evidence_sufficient": output.get("evidence_sufficient", True),
                             "interrupt_reason": output.get("interrupt_reason", ""),
                             "structured_summary": structured,
@@ -1051,7 +1110,7 @@ async def stream_debate(
                     }
 
         except Exception as e:
-            logger.error(f"Debate stream error: {e}")
+            logger.exception("Debate stream error")
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(e)}, ensure_ascii=False),
@@ -1144,38 +1203,31 @@ async def review_contract_stream(
 
     async def event_generator():
         try:
-            async for event in workflow.astream_events(
-                {
-                    "contract_text": body.contract_text,
-                    "user_position": body.user_position,
-                    "review_stance": body.review_stance,
-                    "classification": {},
-                    "risks": {},
-                    "report": "",
-                    "summary": {},
-                    "final_result": "",
-                },
-                version="v2",
-            ):
+            input_state = {
+                "contract_text": body.contract_text,
+                "user_position": body.user_position,
+                "review_stance": body.review_stance,
+                "classification": {},
+                "risks": {},
+                "report": "",
+                "summary": {},
+                "final_result": "",
+            }
+
+            async for chunk in workflow.astream(input_state, stream_mode="updates"):
                 if await request.is_disconnected():
                     break
 
-                kind = event.get("event", "")
-                node_name = event.get("name", "")
+                if not isinstance(chunk, dict) or len(chunk) != 1:
+                    continue
 
-                if kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and chunk.content:
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({
-                                "node": node_name,
-                                "content": chunk.content,
-                            }, ensure_ascii=False),
-                        }
+                node_name, output = next(iter(chunk.items()))
 
-                elif kind == "on_chain_end" and node_name == "classify":
-                    output = event.get("data", {}).get("output", {})
+                if not isinstance(output, dict):
+                    continue
+
+                # 条款分类完成
+                if node_name == "classify":
                     classification = output.get("classification") or {}
                     yield {
                         "event": "metadata",
@@ -1187,8 +1239,8 @@ async def review_contract_stream(
                         }, ensure_ascii=False, default=str),
                     }
 
-                elif kind == "on_chain_end" and node_name == "scan_risks":
-                    output = event.get("data", {}).get("output", {})
+                # 风险扫描完成
+                elif node_name == "scan_risks":
                     risks = output.get("risks") or {}
                     yield {
                         "event": "metadata",
@@ -1201,8 +1253,18 @@ async def review_contract_stream(
                         }, ensure_ascii=False, default=str),
                     }
 
-                elif kind == "on_chain_end" and node_name == "finalize":
-                    output = event.get("data", {}).get("output", {})
+                # 报告生成中
+                elif node_name == "generate_report":
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "node": node_name,
+                            "content": output.get("report", "")[:200],
+                        }, ensure_ascii=False),
+                    }
+
+                # 最终汇总
+                elif node_name == "finalize":
                     structured = output.get("structured_review") or {}
                     yield {
                         "event": "done",
@@ -1215,7 +1277,7 @@ async def review_contract_stream(
                     }
 
         except Exception as e:
-            logger.error(f"Contract review stream error: {e}")
+            logger.exception("Contract review stream error")
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(e)}, ensure_ascii=False),

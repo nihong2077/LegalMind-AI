@@ -283,13 +283,13 @@ async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel
     mismatches: list[str] = []
     kfe = state.get("kfe", {})
     if kfe:
-        from ..legal.kfe_extractor import compare_kfe
+        from ..legal.kfe_extractor import compare_kfe, extract_kfe
         plaintiff_args = state.get("plaintiff_args", [])
         defendant_args = state.get("defendant_args", [])
         if plaintiff_args and defendant_args:
-            from ..legal.kfe_extractor import extract_kfe
-            plaintiff_kfe = extract_kfe(" ".join(str(a) for a in plaintiff_args[-2:]))
-            defendant_kfe = extract_kfe(" ".join(str(a) for a in defendant_args[-2:]))
+            # extract_kfe 是 async 函数，需要 await
+            plaintiff_kfe = await extract_kfe(" ".join(str(a) for a in plaintiff_args[-2:]))
+            defendant_kfe = await extract_kfe(" ".join(str(a) for a in defendant_args[-2:]))
             comparison = compare_kfe(plaintiff_kfe, defendant_kfe)
         else:
             comparison = compare_kfe(kfe, kfe)

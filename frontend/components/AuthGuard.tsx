@@ -18,7 +18,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const authed = isAuthenticated()
     setAuthed(authed)
-    checkAuth()  // 同步 Zustand store 状态
+    checkAuth()
 
     if (!authed && !PUBLIC_PATHS.includes(pathname)) {
       router.replace('/login')
@@ -31,27 +31,25 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#0a1628]">
+      <div className="h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={32} className="animate-spin text-blue-400" />
-          <p className="text-sm text-gold-200/40">验证身份中...</p>
+          <Loader2 size={32} className="animate-spin text-blue-600" />
+          <p className="text-sm text-slate-500">验证身份中...</p>
         </div>
       </div>
     )
   }
 
-  // 公开页面直接渲染
   if (PUBLIC_PATHS.includes(pathname)) {
     return <>{children}</>
   }
 
-  // 需要登录的页面，未登录时不渲染内容
   if (!authed) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#0a1628]">
+      <div className="h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
-          <Shield size={32} className="text-gold-200/30" />
-          <p className="text-sm text-gold-200/40">请先登录</p>
+          <Shield size={32} className="text-slate-300" />
+          <p className="text-sm text-slate-500">请先登录</p>
         </div>
       </div>
     )

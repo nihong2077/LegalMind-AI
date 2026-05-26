@@ -274,8 +274,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           break
         }
       }
-      const rightPanelData = buildRightPanelData(msgs)
-      return { messages: msgs, rightPanelData }
+      // 流式过程中不重算 rightPanelData，避免每帧都触发全量计算
+      return { messages: msgs }
     }),
 
   clearMessages: () =>
@@ -377,7 +377,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }))
-    chatMessages.push({ role: 'user', content })
+    // addMessage 已将用户消息加入 state.messages，recentMessages 已包含它，无需再 push
 
     let fullContent = ''
 
@@ -393,6 +393,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             fullContent = done.content
             get().updateLastAssistantMessage(fullContent)
           }
+          // 流式结束后更新右侧面板数据
+          const finalMsgs = get().messages
+          set({ rightPanelData: buildRightPanelData(finalMsgs) })
           get().saveCurrentSession()
         } else if (event.type === 'error') {
           const err = event.data as { error: string; message: string }
@@ -406,7 +409,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ error: (e as Error).message })
       }
     } finally {
-      set({ isStreaming: false, abortController: null })
+      const finalMsgs = get().messages
+      set({ isStreaming: false, abortController: null, rightPanelData: buildRightPanelData(finalMsgs) })
       get().saveCurrentSession()
     }
   },
@@ -547,18 +551,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
-    const docId = Date.now().toString() + Math.random().toString(36).slice(2)
-    get().addDocument({
-      name: file.name,
-      size: `${(file.size / 1024).toFixed(1)} KB`,
-      type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-      status: 'uploading',
+    // 先添加文档到列表，获取本地 ID
+    let localDocId = ''
+    set((s) => {
+      localDocId = Date.now().toString() + Math.random().toString(36).slice(2)
+      return {
+        documents: [
+          ...s.documents,
+          {
+            id: localDocId,
+            name: file.name,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+            status: 'uploading' as const,
+            uploadedAt: new Date(),
+          },
+        ],
+      }
     })
 
     try {
-      get().updateDocumentStatus(docId, 'uploading')
       const result = await uploadDocument(file)
-      get().updateDocumentStatus(docId, 'analyzing')
+      // 用后端返回的真实 ID 更新本地文档
+      get().updateDocumentStatus(localDocId, 'analyzing')
 
       const analysisResult = await analyzeDocument(result.id)
       get().addMessage({
@@ -568,7 +583,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })
       get().saveCurrentSession()
     } catch (e) {
-      get().updateDocumentStatus(docId, 'error')
+      get().updateDocumentStatus(localDocId, 'error')
       set({ error: `文档上传失败: ${(e as Error).message}` })
     }
   },

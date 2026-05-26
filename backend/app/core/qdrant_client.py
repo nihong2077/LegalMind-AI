@@ -7,7 +7,9 @@ Collection 设计:
 - law_knowledge: 法条知识向量 (法律法规、司法解释、部门规章)
 """
 import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from qdrant_client import AsyncQdrantClient, models
@@ -29,18 +31,41 @@ COLLECTIONS = {
 
 VECTOR_SIZE = settings.EMBEDDING_DIM
 
+# 默认本地存储路径：项目根目录 data/qdrant_DATA
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_DEFAULT_QDRANT_PATH = str(_PROJECT_ROOT / "data" / "qdrant_data")
+
 _qdrant_client: Optional[AsyncQdrantClient] = None
 
 
 def get_qdrant_client() -> AsyncQdrantClient:
-    """获取 Qdrant 异步客户端（单例）"""
+    """获取 Qdrant 异步客户端（单例）
+
+    优先使用本地文件路径模式（QDRANT_PATH），
+    若未配置则回退到 URL 模式（QDRANT_URL）。
+    """
     global _qdrant_client
     if _qdrant_client is None:
-        _qdrant_client = AsyncQdrantClient(
-            url=settings.QDRANT_URL,
-            timeout=30.0,
-        )
-        logger.info("Qdrant 客户端初始化: %s", settings.QDRANT_URL)
+        # 解析 QDRANT_PATH：相对路径基于项目根目录
+        raw_path = settings.QDRANT_PATH
+        if raw_path:
+            p = Path(raw_path)
+            if not p.is_absolute():
+                local_path = str(_PROJECT_ROOT / raw_path)
+            else:
+                local_path = raw_path
+        else:
+            local_path = _DEFAULT_QDRANT_PATH
+
+        if os.path.isdir(local_path):
+            _qdrant_client = AsyncQdrantClient(path=local_path)
+            logger.info("Qdrant 客户端初始化 (本地模式): %s", local_path)
+        else:
+            _qdrant_client = AsyncQdrantClient(
+                url=settings.QDRANT_URL,
+                timeout=30.0,
+            )
+            logger.info("Qdrant 客户端初始化 (远程模式): %s", settings.QDRANT_URL)
     return _qdrant_client
 
 
@@ -122,13 +147,25 @@ async def search_vectors(
             )
         query_filter = models.Filter(must=conditions)
 
-    results = await client.search(
-        collection_name=collection_name,
-        query_vector=query_vector,
-        limit=top_k,
-        score_threshold=score_threshold,
-        query_filter=query_filter,
-    )
+    # 兼容新版 qdrant_client：优先使用 query_points，回退 search
+    try:
+        results = await client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            limit=top_k,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+        )
+        hits = results.points
+    except (AttributeError, TypeError):
+        results = await client.search(
+            collection_name=collection_name,
+            query_vector=query_vector,
+            limit=top_k,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+        )
+        hits = results
 
     return [
         {
@@ -136,7 +173,7 @@ async def search_vectors(
             "score": hit.score,
             "payload": hit.payload,
         }
-        for hit in results
+        for hit in hits
     ]
 
 

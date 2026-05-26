@@ -6,15 +6,15 @@
 
 @layer base {
   body {
-    @apply bg-navy-900 text-gold-200 font-inter antialiased;
+    @apply bg-white text-slate-800 font-inter antialiased;
   }
 
   h1, h2, h3, h4 {
-    @apply font-semibold text-gold-200;
+    @apply font-semibold text-slate-800;
   }
 
   a {
-    @apply text-gold-400 hover:text-gold-300 transition-colors;
+    @apply text-blue-600 hover:text-blue-700 transition-colors;
   }
 
   ::-webkit-scrollbar {
@@ -22,38 +22,31 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-navy-900;
+    @apply bg-gray-100;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-navy-600 rounded-full;
+    @apply bg-gray-300 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gold-400/50;
+    @apply bg-gray-400;
   }
 }
 
 @layer components {
   .glass-card {
-    @apply relative overflow-hidden rounded-2xl;
-    background: rgba(20, 25, 40, 0.65);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(198, 168, 92, 0.15);
-    transition: all 0.4s ease;
+    @apply relative overflow-hidden rounded-xl bg-white border border-gray-200 shadow-sm;
+    transition: all 0.3s ease;
   }
 
   .glass-card:hover {
-    border-color: rgba(198, 168, 92, 0.4);
-    box-shadow: 0 0 40px rgba(198, 168, 92, 0.1);
-    transform: translateY(-4px);
+    @apply border-blue-200 shadow-md;
+    transform: translateY(-2px);
   }
 
   .glass-card-static {
-    @apply relative overflow-hidden rounded-2xl;
-    background: rgba(20, 25, 40, 0.65);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(198, 168, 92, 0.15);
+    @apply relative overflow-hidden rounded-xl bg-white border border-gray-200 shadow-sm;
   }
 
   .feature-glow {
@@ -61,11 +54,11 @@
     inset: 0;
     background: radial-gradient(
       circle at 50% 0%,
-      rgba(198, 168, 92, 0.12),
+      rgba(37, 99, 235, 0.06),
       transparent 60%
     );
     opacity: 0;
-    transition: opacity 0.4s ease;
+    transition: opacity 0.3s ease;
   }
 
   .glass-card:hover .feature-glow {
@@ -83,54 +76,55 @@
     width: 620px;
     height: 620px;
     border-radius: 50%;
-    border: 1px solid rgba(198, 168, 92, 0.35);
+    border: 1px solid rgba(37, 99, 235, 0.2);
     box-shadow:
-      0 0 25px rgba(198, 168, 92, 0.25),
-      inset 0 0 25px rgba(198, 168, 92, 0.15);
+      0 0 25px rgba(37, 99, 235, 0.1),
+      inset 0 0 25px rgba(37, 99, 235, 0.05);
   }
 
   .gold-btn {
-    @apply px-6 py-2.5 bg-gold-400 text-navy-900 rounded-lg font-medium
-           hover:bg-gold-300 transition-all duration-300
-           shadow-lg shadow-gold-400/20 hover:shadow-gold-400/40;
+    @apply px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium
+           hover:bg-blue-700 transition-all duration-300
+           shadow-sm hover:shadow-md;
   }
 
   .gold-btn-outline {
-    @apply px-6 py-2.5 border border-gold-400 text-gold-400 rounded-lg font-medium
-           hover:bg-gold-400/10 transition-all duration-300;
+    @apply px-6 py-2.5 border border-blue-600 text-blue-600 rounded-lg font-medium
+           hover:bg-blue-50 transition-all duration-300;
   }
 
   .gold-btn-sm {
-    @apply px-3 py-1.5 bg-gold-400 text-navy-900 rounded-lg text-xs font-medium
-           hover:bg-gold-300 transition-all duration-300;
+    @apply px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium
+           hover:bg-blue-700 transition-all duration-300;
   }
 
   .sidebar-link {
     @apply flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200
-           text-gold-200/70 hover:text-gold-200 hover:bg-white/5;
+           text-white/70 hover:text-white hover:bg-white/10;
   }
 
   .sidebar-link-active {
     @apply flex items-center gap-3 px-4 py-2.5 rounded-lg
-           text-gold-400 bg-gold-400/10 border border-gold-400/20;
+           text-white bg-white/15 border border-white/10;
   }
 
   .chat-bubble-user {
     @apply px-4 py-3 rounded-2xl rounded-tr-sm max-w-[80%] ml-auto;
-    background: linear-gradient(135deg, rgba(198, 168, 92, 0.25), rgba(198, 168, 92, 0.1));
-    border: 1px solid rgba(198, 168, 92, 0.3);
+    background: #2563eb;
+    color: white;
   }
 
   .chat-bubble-assistant {
     @apply px-4 py-3 rounded-2xl rounded-tl-sm max-w-[80%];
-    background: rgba(20, 25, 40, 0.8);
-    border: 1px solid rgba(198, 168, 92, 0.1);
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
   }
 
   .input-field {
-    @apply w-full bg-navy-800/60 border border-gold-400/20 rounded-xl
-           px-4 py-3 text-gold-200 placeholder-gold-200/30
-           focus:outline-none focus:border-gold-400/50 focus:ring-1 focus:ring-gold-400/30
+    @apply w-full bg-white border border-gray-300 rounded-xl
+           px-4 py-3 text-slate-800 placeholder-slate-400
+           focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
            transition-all duration-300;
   }
 }

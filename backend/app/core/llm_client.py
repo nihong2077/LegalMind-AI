@@ -28,6 +28,11 @@ class LLMClient:
         self.proxy_url = (proxy_url or settings.LITELLM_PROXY_URL).rstrip("/")
         self.virtual_key = virtual_key or settings.LITELLM_VIRTUAL_KEY
         self._client: Optional[httpx.AsyncClient] = None
+        self._direct_client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def _use_proxy(self) -> bool:
+        return bool(self.virtual_key and self.proxy_url)
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -41,9 +46,25 @@ class LLMClient:
             )
         return self._client
 
+    def _get_direct_client(self) -> httpx.AsyncClient:
+        """直连 DeepSeek API 的客户端（单例复用）"""
+        if self._direct_client is None or self._direct_client.is_closed:
+            deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
+            self._direct_client = httpx.AsyncClient(
+                base_url=DEEPSEEK_API_BASE,
+                headers={
+                    "Authorization": f"Bearer {deepseek_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=httpx.Timeout(60.0, connect=10.0),
+            )
+        return self._direct_client
+
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+        if self._direct_client and not self._direct_client.is_closed:
+            await self._direct_client.aclose()
 
     def get_chat_model(
         self,
@@ -94,10 +115,18 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
-        client = self._get_client()
-        response = await client.post("/chat/completions", json=payload)
-        response.raise_for_status()
-        result = response.json()
+        if self._use_proxy:
+            client = self._get_client()
+            response = await client.post("/chat/completions", json=payload)
+            response.raise_for_status()
+            result = response.json()
+        else:
+            api_model = DEEPSEEK_MODELS.get(model, model)
+            payload["model"] = api_model
+            client = self._get_direct_client()
+            response = await client.post("/chat/completions", json=payload)
+            response.raise_for_status()
+            result = response.json()
 
         if cache_key and result.get("choices"):
             await self._set_cache(cache_key, result)
@@ -111,6 +140,8 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 2048,
     ) -> AsyncIterator[dict]:
+        import json
+
         payload = {
             "model": model,
             "messages": messages,
@@ -119,29 +150,53 @@ class LLMClient:
             "stream": True,
         }
 
-        client = self._get_client()
-        async with client.stream("POST", "/chat/completions", json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    break
-                import json
-                try:
-                    chunk = json.loads(data)
-                    yield chunk
-                except json.JSONDecodeError:
-                    continue
+        if self._use_proxy:
+            client = self._get_client()
+            async with client.stream("POST", "/chat/completions", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        yield chunk
+                    except json.JSONDecodeError:
+                        continue
+        else:
+            api_model = DEEPSEEK_MODELS.get(model, model)
+            payload["model"] = api_model
+            client = self._get_direct_client()
+            async with client.stream("POST", "/chat/completions", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        yield chunk
+                    except json.JSONDecodeError:
+                        continue
 
     async def health_check(self) -> dict:
         try:
-            client = self._get_client()
-            response = await client.get("/health/liveliness")
-            if response.status_code == 200:
-                return {"status": "healthy", "proxy_url": self.proxy_url}
-            return {"status": "degraded", "status_code": response.status_code}
+            if self._use_proxy:
+                client = self._get_client()
+                response = await client.get("/health/liveliness")
+                if response.status_code == 200:
+                    return {"status": "healthy", "proxy_url": self.proxy_url}
+                return {"status": "degraded", "status_code": response.status_code}
+            else:
+                # 直连模式：简单验证 API Key 是否配置
+                deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
+                if deepseek_key:
+                    return {"status": "healthy", "mode": "direct", "api_base": DEEPSEEK_API_BASE}
+                return {"status": "unhealthy", "error": "未配置 DEEPSEEK_API_KEY"}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
 

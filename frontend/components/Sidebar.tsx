@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Scale, FileText, LayoutDashboard, Shield, BookOpen, Home, LogIn, LogOut, FolderOpen } from 'lucide-react'
+import { MessageSquare, Scale, FileText, LayoutDashboard, Shield, BookOpen, LogIn, LogOut, FolderOpen } from 'lucide-react'
 import { useChatStore } from '@/store/useChatStore'
 import { clearToken } from '@/app/lib/api'
 
@@ -29,14 +29,14 @@ export default function Sidebar({ onLoginClick }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] h-screen bg-[#0a1628] flex flex-col border-r border-white/5">
-      <Link href="/" className="p-5 flex items-center gap-3 border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+    <aside className="w-[200px] h-screen bg-[#1e3a5f] flex flex-col border-r border-white/10">
+      <Link href="/" className="p-5 flex items-center gap-3 border-b border-white/10 hover:bg-white/5 transition-colors">
+        <div className="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
           <Shield size={18} className="text-white" />
         </div>
         <div>
-          <h1 className="text-base font-bold text-white leading-tight">智法: AI</h1>
-          <p className="text-[10px] text-gray-400 leading-tight">智能法援助手</p>
+          <h1 className="text-base font-bold text-white leading-tight">智法 AI</h1>
+          <p className="text-[10px] text-blue-200/60 leading-tight">智能法援助手</p>
         </div>
       </Link>
 
@@ -49,8 +49,8 @@ export default function Sidebar({ onLoginClick }: SidebarProps) {
               href={href}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm ${
                 isActive
-                  ? 'bg-blue-500/15 text-blue-400 font-medium'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                  ? 'bg-white/15 text-white font-medium border border-white/10'
+                  : 'text-white/70 hover:text-white hover:bg-white/10'
               }`}
             >
               <Icon size={18} className="flex-shrink-0" />
@@ -60,14 +60,14 @@ export default function Sidebar({ onLoginClick }: SidebarProps) {
         })}
       </nav>
 
-      <div className="p-4 border-t border-white/5">
+      <div className="p-4 border-t border-white/10">
         {authed ? (
-          <button onClick={handleLogout} className="flex items-center gap-2 px-2 w-full text-gray-400 hover:text-red-400 transition-colors">
+          <button onClick={handleLogout} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-red-300 transition-colors">
             <LogOut size={14} />
             <span className="text-xs">退出登录</span>
           </button>
         ) : (
-          <button onClick={onLoginClick} className="flex items-center gap-2 px-2 w-full text-gray-400 hover:text-blue-400 transition-colors">
+          <button onClick={onLoginClick} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-white transition-colors">
             <LogIn size={14} />
             <span className="text-xs">登录</span>
           </button>

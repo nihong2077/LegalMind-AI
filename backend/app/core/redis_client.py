@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 import uuid
 from typing import Optional
@@ -6,6 +7,8 @@ from typing import Optional
 import redis.asyncio as aioredis
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 redis_client: Optional[aioredis.Redis] = None
 
@@ -17,6 +20,13 @@ STREAM_MAX_LEN = 1000
 
 async def init_redis() -> aioredis.Redis:
     global redis_client
+    try:
+        from redis.retry import Retry
+        from redis.backoff import ExponentialBackoff
+        retry = Retry(ExponentialBackoff(base=1, cap=10), retries=3)
+    except ImportError:
+        retry = None
+
     redis_client = aioredis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
@@ -24,8 +34,12 @@ async def init_redis() -> aioredis.Redis:
         max_connections=20,
         socket_connect_timeout=5,
         socket_timeout=5,
+        retry=retry,
         retry_on_timeout=True,
     )
+    # 验证连接
+    await redis_client.ping()
+    logger.info("Redis 连接成功: %s", settings.REDIS_URL)
     return redis_client
 
 

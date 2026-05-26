@@ -14,10 +14,11 @@ class Settings(BaseSettings):
     PG_LAW_URL: str = "postgresql+asyncpg://legalmind:legalmind_secure_2024@localhost:5432/law_db"
 
     QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_PATH: str = "data/qdrant_data"  # 本地模式路径，相对于项目根目录
 
-    EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-0.6B"
+    EMBEDDING_MODEL: str = "models/Qwen/Qwen3-Embedding-0.6B"
     EMBEDDING_DIM: int = 1024
-    EMBEDDING_DEVICE: str = "cpu"
+    EMBEDDING_DEVICE: str = "cuda"
     EMBEDDING_BATCH_SIZE: int = 32
 
     RERANKER_MODEL: str = "Qwen/Qwen3-Reranker"

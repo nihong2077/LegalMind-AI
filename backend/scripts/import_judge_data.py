@@ -39,28 +39,48 @@ DEFAULT_INPUT_FILE = PROJECT_ROOT.parent / "data" / "judge" / "cleaned" / "judge
 async def write_to_pg(cases: list[dict]):
     """将案件数据写入 PostgreSQL"""
     try:
-        from app.core.pg_client import JudgeCase, AsyncSession, law_engine, init_pg
+        from dateutil.parser import parse as parse_date
+    except ImportError:
+        from datetime import datetime as _dt
+        def parse_date(s):
+            try:
+                return _dt.strptime(s[:10], "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+    try:
+        from app.core.pg_client import JudgeCase, AsyncSession, judge_engine, init_pg
         await init_pg()
 
-        async with AsyncSession(law_engine) as session:
+        async with AsyncSession(judge_engine) as session:
             for case in cases:
+                # 处理日期
+                jd = case.get("judgment_date", "")
+                if isinstance(jd, str) and jd.strip():
+                    try:
+                        jd = parse_date(jd)
+                    except Exception:
+                        jd = None
+                else:
+                    jd = None
+
                 row = JudgeCase(
-                    case_number=case["case_number"],
-                    case_name=case["case_name"],
-                    court_level=case["court_level"],
-                    court_name=case["court_name"],
-                    case_type=case["case_type"],
-                    cause_of_action=case["cause_of_action"],
-                    judgment_date=case["judgment_date"],
-                    plaintiff_claim=case["plaintiff_claim"],
-                    defendant_defense=case["defendant_defense"],
-                    facts_summary=case["facts_summary"],
-                    judgment_reasoning=case["judgment_reasoning"],
-                    judgment_result=case["judgment_result"],
-                    applicable_laws=case["applicable_laws"],
-                    keywords=case["keywords"],
+                    case_number=case["case_number"][:256],
+                    case_name=case.get("case_name", "")[:256],
+                    court_level=case.get("court_level", "")[:64],
+                    court_name=case.get("court_name", "")[:256],
+                    case_type=case.get("case_type", "")[:64],
+                    cause_of_action=case.get("cause_of_action", "")[:256],
+                    judgment_date=jd,
+                    plaintiff_claim=case.get("plaintiff_claim", ""),
+                    defendant_defense=case.get("defendant_defense", ""),
+                    facts_summary=case.get("facts_summary", ""),
+                    judgment_reasoning=case.get("judgment_reasoning", ""),
+                    judgment_result=case.get("judgment_result", ""),
+                    applicable_laws=case.get("applicable_laws", ""),
+                    keywords=case.get("keywords", []),
                     embedding=case.get("embedding"),
-                    source_file=case.get("source_file", ""),
+                    source_metadata=case.get("metadata", case.get("source_file", "")),
                 )
                 session.add(row)
             await session.commit()
@@ -194,9 +214,13 @@ async def main(
         cases = json.load(f)
     logger.info(f"加载完成: {len(cases)} 个案件")
 
-    # 2. 生成嵌入
-    logger.info("步骤 2/4: 生成向量嵌入...")
-    valid_cases = await generate_embeddings(cases)
+    # 2. 生成嵌入（仅 Qdrant 需要）
+    if not skip_qdrant:
+        logger.info("步骤 2/4: 生成向量嵌入...")
+        valid_cases = await generate_embeddings(cases)
+    else:
+        logger.info("步骤 2/4: 跳过向量嵌入（--skip-qdrant）")
+        valid_cases = cases
 
     # 3. 写入 PostgreSQL
     if not skip_pg:

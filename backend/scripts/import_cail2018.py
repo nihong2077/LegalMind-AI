@@ -493,7 +493,7 @@ async def write_judge_cases_to_pg(cases: list[dict]):
                     applicable_laws=case["applicable_laws"],
                     keywords=case["keywords"],
                     embedding=case.get("embedding"),
-                    metadata=case.get("metadata", {}),
+                    source_metadata=case.get("metadata", {}),
                 )
                 session.add(row)
             await session.commit()
@@ -517,7 +517,7 @@ async def write_sentencing_to_pg(guidelines: list[dict]):
                 legal_basis=g["legal_basis"],
                 source_document=g["source_document"],
                 embedding=g.get("embedding"),
-                metadata=g.get("metadata", {}),
+                source_metadata=g.get("metadata", {}),
             )
             session.add(row)
         await session.commit()
@@ -540,7 +540,7 @@ async def write_defense_to_pg(strategies: list[dict]):
                 success_rate=s.get("success_rate", ""),
                 reference_cases=s.get("reference_cases", ""),
                 embedding=s.get("embedding"),
-                metadata={"source": "CAIL2018"},
+                source_metadata={"source": "CAIL2018"},
             )
             session.add(row)
         await session.commit()
@@ -662,19 +662,25 @@ async def main(
         json.dump(defense_strategies, f, ensure_ascii=False, indent=2)
     logger.info(f"清洗后数据已保存到: {output_dir}")
 
-    # 5. 生成嵌入
-    logger.info("步骤 5/7: 生成向量嵌入...")
-    logger.info("  生成 judge_cases 嵌入...")
-    await generate_embeddings(judge_cases, text_field="facts_summary")
-    logger.info("  生成 sentencing_guidelines 嵌入...")
-    await generate_embeddings(sentencing_guidelines, text_field="crime_category")
-    logger.info("  生成 defense_strategies 嵌入...")
-    await generate_embeddings(defense_strategies, text_field="argument_template")
+    # 5. 生成嵌入（仅 Qdrant 需要）
+    if not skip_qdrant:
+        logger.info("步骤 5/7: 生成向量嵌入...")
+        logger.info("  生成 judge_cases 嵌入...")
+        await generate_embeddings(judge_cases, text_field="facts_summary")
+        logger.info("  生成 sentencing_guidelines 嵌入...")
+        await generate_embeddings(sentencing_guidelines, text_field="crime_category")
+        logger.info("  生成 defense_strategies 嵌入...")
+        await generate_embeddings(defense_strategies, text_field="argument_template")
 
-    valid_judge = [c for c in judge_cases if c.get("embedding") is not None]
-    valid_sentencing = [g for g in sentencing_guidelines if g.get("embedding") is not None]
-    valid_defense = [s for s in defense_strategies if s.get("embedding") is not None]
-    logger.info(f"嵌入完成: judge={len(valid_judge)}, sentencing={len(valid_sentencing)}, defense={len(valid_defense)}")
+        valid_judge = [c for c in judge_cases if c.get("embedding") is not None]
+        valid_sentencing = [g for g in sentencing_guidelines if g.get("embedding") is not None]
+        valid_defense = [s for s in defense_strategies if s.get("embedding") is not None]
+        logger.info(f"嵌入完成: judge={len(valid_judge)}, sentencing={len(valid_sentencing)}, defense={len(valid_defense)}")
+    else:
+        logger.info("步骤 5/7: 跳过向量嵌入（--skip-qdrant）")
+        valid_judge = judge_cases
+        valid_sentencing = sentencing_guidelines
+        valid_defense = defense_strategies
 
     # 6. 写入 PostgreSQL
     if not skip_pg:

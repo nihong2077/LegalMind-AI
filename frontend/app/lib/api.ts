@@ -68,6 +68,11 @@ export async function chatCompletion(messages: ChatMessage[], model = 'deepseek-
     },
     body: JSON.stringify({ messages, model }),
   })
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Token 已过期，请重新登录')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '请求失败' }))
     throw new Error(err.detail || '请求失败')
@@ -93,6 +98,12 @@ export async function* chatStream(
     signal,
   })
 
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Token 已过期，请重新登录')
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '请求失败' }))
     throw new Error(err.detail || '请求失败')
@@ -104,6 +115,7 @@ export async function* chatStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -133,6 +145,9 @@ export async function* chatStream(
         currentEvent = ''
       }
     }
+  }
+  } finally {
+    reader.releaseLock()
   }
 }
 
@@ -174,6 +189,14 @@ async function authFetch(url: string, options?: RequestInit) {
     'Authorization': `Bearer ${token}`,
   }
   const res = await fetch(url, { ...options, headers })
+  // Token 过期或无效时，清除本地凭证并跳转登录页
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login'
+    }
+    throw new Error('Token 已过期，请重新登录')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '请求失败' }))
     throw new Error(err.detail || '请求失败')
@@ -215,6 +238,11 @@ export async function uploadDocument(file: File): Promise<DocumentItem> {
     headers: { 'Authorization': `Bearer ${token}` },
     body: formData,
   })
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Token 已过期，请重新登录')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '上传失败' }))
     throw new Error(err.detail || '上传失败')
@@ -370,6 +398,12 @@ export async function* debateStream(
     signal,
   })
 
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Token 已过期，请重新登录')
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '请求失败' }))
     throw new Error(err.detail || '请求失败')
@@ -381,6 +415,7 @@ export async function* debateStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -412,6 +447,9 @@ export async function* debateStream(
         currentEvent = ''
       }
     }
+  }
+  } finally {
+    reader.releaseLock()
   }
 }
 
@@ -505,6 +543,12 @@ export async function* contractReviewStream(
     signal,
   })
 
+  if (res.status === 401) {
+    clearToken()
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Token 已过期，请重新登录')
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '请求失败' }))
     throw new Error(err.detail || '请求失败')
@@ -516,6 +560,7 @@ export async function* contractReviewStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -547,5 +592,8 @@ export async function* contractReviewStream(
         currentEvent = ''
       }
     }
+  }
+  } finally {
+    reader.releaseLock()
   }
 }

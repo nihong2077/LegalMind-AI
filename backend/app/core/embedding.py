@@ -7,6 +7,7 @@ Qwen3-Embedding 嵌入服务 — 通义千问文本向量模型
 """
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -18,20 +19,51 @@ logger = logging.getLogger(__name__)
 
 _embedding_model: Optional[SentenceTransformer] = None
 
+# 项目根目录（LegalMind AI/）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _resolve_model_path(model_name: str) -> str:
+    """解析模型路径：如果是相对路径则基于项目根目录解析"""
+    p = Path(model_name)
+    if not p.is_absolute() and not p.name.startswith("Qwen/"):
+        # 相对路径 → 基于项目根目录
+        resolved = _PROJECT_ROOT / model_name
+        if resolved.exists():
+            return str(resolved)
+    # 尝试项目根目录下 models/ 前缀
+    candidate = _PROJECT_ROOT / model_name
+    if candidate.exists():
+        return str(candidate)
+    return model_name
+
 
 def get_embedding_model() -> SentenceTransformer:
     """获取或初始化 Qwen3-Embedding 模型（单例）"""
     global _embedding_model
     if _embedding_model is None:
-        model_name = settings.EMBEDDING_MODEL
+        model_name = _resolve_model_path(settings.EMBEDDING_MODEL)
         device = settings.EMBEDDING_DEVICE
         logger.info("加载 Qwen 嵌入模型: %s (device=%s)", model_name, device)
 
-        _embedding_model = SentenceTransformer(
-            model_name,
-            device=device,
-            trust_remote_code=True,
-        )
+        # 优先离线加载（避免网络不可达导致失败）
+        try:
+            _embedding_model = SentenceTransformer(
+                model_name,
+                device=device,
+                trust_remote_code=True,
+                local_files_only=True,
+            )
+            logger.info("Qwen 嵌入模型加载完成 (离线模式), 向量维度=%d",
+                        _embedding_model.get_embedding_dimension())
+        except Exception as e:
+            logger.warning("离线加载失败 (%s), 尝试在线加载...", e)
+            _embedding_model = SentenceTransformer(
+                model_name,
+                device=device,
+                trust_remote_code=True,
+            )
+
         dim = _embedding_model.get_embedding_dimension()
         logger.info("Qwen 嵌入模型加载完成, 向量维度=%d", dim)
 

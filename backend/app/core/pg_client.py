@@ -80,7 +80,7 @@ class JudgeCase(Base):
     applicable_laws: Mapped[Optional[str]] = mapped_column(Text)
     keywords: Mapped[Optional[list]] = mapped_column(JSON, default=[])
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -98,7 +98,7 @@ class SentencingGuideline(Base):
     legal_basis: Mapped[Optional[str]] = mapped_column(Text)
     source_document: Mapped[Optional[str]] = mapped_column(String(512))
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -113,7 +113,7 @@ class TrialProcedure(Base):
     time_limit: Mapped[Optional[str]] = mapped_column(String(128))
     legal_basis: Mapped[Optional[str]] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -133,7 +133,7 @@ class DefenseStrategy(Base):
     success_rate: Mapped[Optional[str]] = mapped_column(String(32))
     reference_cases: Mapped[Optional[str]] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -148,7 +148,7 @@ class EvidenceRule(Base):
     exclusion_rules: Mapped[Optional[str]] = mapped_column(Text)
     legal_basis: Mapped[Optional[str]] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -164,7 +164,7 @@ class ContractReviewTemplate(Base):
     suggested_wording: Mapped[Optional[str]] = mapped_column(Text)
     legal_basis: Mapped[Optional[str]] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -178,7 +178,7 @@ class LegalOpinion(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     key_arguments: Mapped[Optional[str]] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -201,7 +201,7 @@ class LegalProvision(Base):
     status: Mapped[str] = mapped_column(String(32), default="active")
     keywords: Mapped[Optional[list]] = mapped_column(JSON, default=[])
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -219,7 +219,7 @@ class JudicialInterpretation(Base):
     related_laws: Mapped[Optional[str]] = mapped_column(Text)
     keywords: Mapped[Optional[list]] = mapped_column(JSON, default=[])
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -236,7 +236,7 @@ class AdministrativeRegulation(Base):
     category: Mapped[Optional[str]] = mapped_column(String(128))
     keywords: Mapped[Optional[list]] = mapped_column(JSON, default=[])
     embedding = mapped_column(Vector(1024), nullable=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, default={})
+    source_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isRegister, setIsRegister] = useState(false)
+  const [confirmPassword, setConfirmPassword] = useState('')
 
   useEffect(() => {
     if (isAuthenticated()) {
@@ -26,6 +28,26 @@ export default function LoginPage() {
     e.preventDefault()
     if (!username.trim() || !password.trim()) return
     setError('')
+
+    if (isRegister) {
+      if (password !== confirmPassword) {
+        setError('两次输入的密码不一致')
+        return
+      }
+      setLoading(true)
+      try {
+        // 注册接口调用（暂用登录接口模拟）
+        await login(username, password)
+        setAuthed(true)
+        router.replace('/dashboard')
+      } catch (err: unknown) {
+        setError((err as Error).message || '注册失败')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     setLoading(true)
     try {
       await login(username, password)
@@ -39,7 +61,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a1628] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -48,76 +70,102 @@ export default function LoginPage() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/20">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center mb-4 shadow-lg shadow-blue-600/20">
             <Scale size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gold-200">LegalMind AI</h1>
-          <p className="text-sm text-gold-200/40 mt-1">智能司法协作平台</p>
+          <h1 className="text-2xl font-bold text-slate-800">LegalMind AI</h1>
+          <p className="text-sm text-slate-500 mt-1">智能司法协作平台</p>
         </div>
 
-        {/* 登录卡片 */}
-        <div className="border border-white/10 rounded-2xl bg-white/[0.02] backdrop-blur-xl p-8">
-          <h2 className="text-lg font-semibold text-gold-200 mb-1">登录</h2>
-          <p className="text-xs text-gold-200/40 mb-6">使用您的账号登录系统</p>
+        {/* 登录/注册卡片 */}
+        <div className="border border-gray-200 rounded-2xl bg-white shadow-lg shadow-gray-200/50 p-8">
+          <h2 className="text-lg font-semibold text-slate-800 mb-1">{isRegister ? '注册' : '登录'}</h2>
+          <p className="text-xs text-slate-500 mb-6">{isRegister ? '创建您的账号' : '使用您的账号登录系统'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs text-gold-200/60 mb-1.5 block">用户名</label>
+              <label className="text-xs text-slate-600 mb-1.5 block">用户名</label>
               <input
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 placeholder="请输入用户名"
-                className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-gold-200
-                         placeholder:text-gold-200/25 focus:outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/10
+                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                         placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
                          transition-all"
                 autoFocus
               />
             </div>
 
             <div>
-              <label className="text-xs text-gold-200/60 mb-1.5 block">密码</label>
+              <label className="text-xs text-slate-600 mb-1.5 block">密码</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="请输入密码"
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-sm text-gold-200
-                           placeholder:text-gold-200/25 focus:outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/10
+                  className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 pr-10 text-sm text-slate-800
+                           placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
                            transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gold-200/30 hover:text-gold-200/60 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
+            {isRegister && (
+              <div>
+                <label className="text-xs text-slate-600 mb-1.5 block">确认密码</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="请再次输入密码"
+                  className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                           placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
+                           transition-all"
+                />
+              </div>
+            )}
+
             {error && (
-              <div className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
+              <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
               </div>
             )}
 
             <button
               type="submit"
-              disabled={!username.trim() || !password.trim() || loading}
+              disabled={!username.trim() || !password.trim() || loading || (isRegister && !confirmPassword.trim())}
               className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium
                        hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed
                        flex items-center justify-center gap-2 transition-colors"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}
-              {loading ? '登录中...' : '登录'}
+              {loading ? (isRegister ? '注册中...' : '登录中...') : (isRegister ? '注册' : '登录')}
             </button>
           </form>
 
-          <p className="text-[10px] text-gold-200/30 text-center mt-6">
-            默认账号：admin / admin
-          </p>
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => { setIsRegister(!isRegister); setError('') }}
+              className="text-xs text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+            >
+              {isRegister ? '已有账号？去登录' : '没有账号？立即注册'}
+            </button>
+          </div>
+
+          {!isRegister && (
+            <p className="text-[10px] text-slate-400 text-center mt-4">
+              默认账号：admin / admin
+            </p>
+          )}
         </div>
       </motion.div>
     </div>

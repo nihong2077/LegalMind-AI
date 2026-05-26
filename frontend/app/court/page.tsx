@@ -36,10 +36,10 @@ interface DebateMessage {
 }
 
 const ROLE_CONFIG = {
-  judge:     { label: '法官', icon: Scale, color: '#3b82f6', bg: 'bg-blue-500/10', border: 'border-blue-400/30', text: 'text-blue-400', avatar: 'bg-blue-500' },
-  plaintiff: { label: '原告律师', icon: FileText, color: '#f97316', bg: 'bg-orange-500/10', border: 'border-orange-400/30', text: 'text-orange-400', avatar: 'bg-orange-500' },
-  defendant: { label: '被告律师', icon: AlertTriangle, color: '#a855f7', bg: 'bg-purple-500/10', border: 'border-purple-400/30', text: 'text-purple-400', avatar: 'bg-purple-500' },
-  mediator:  { label: '调解员', icon: CheckCircle, color: '#22c55e', bg: 'bg-green-500/10', border: 'border-green-400/30', text: 'text-green-400', avatar: 'bg-green-500' },
+  judge:     { label: '法官', icon: Scale, color: '#3b82f6', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-600', avatar: 'bg-blue-500' },
+  plaintiff: { label: '原告律师', icon: FileText, color: '#f97316', bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-600', avatar: 'bg-orange-500' },
+  defendant: { label: '被告律师', icon: AlertTriangle, color: '#a855f7', bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-600', avatar: 'bg-purple-500' },
+  mediator:  { label: '调解员', icon: CheckCircle, color: '#22c55e', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-600', avatar: 'bg-green-500' },
 }
 
 const INITIAL_FLOW_STEPS: FlowStep[] = [
@@ -73,11 +73,50 @@ const NODE_TO_STEP: Record<string, string> = {
 }
 
 function detectRole(node: string): DebateMessage['role'] {
-  if (node.includes('judge') || node.includes('verdict')) return 'judge'
+  if (!node) return 'judge'
   if (node.includes('plaintiff')) return 'plaintiff'
   if (node.includes('defendant')) return 'defendant'
   if (node.includes('mediator') || node.includes('plain_language')) return 'mediator'
+  // judge_opening, judge_comment, judge_verdict, court_investigation, judgment_report, finalize 等
   return 'judge'
+}
+
+/** 清理 LLM 输出中的 Markdown 格式标记，保留纯文本 */
+function cleanMarkdown(text: string): string {
+  return text
+    // 移除代码块
+    .replace(/```[\s\S]*?```/g, '')
+    // 移除行内代码
+    .replace(/`([^`]+)`/g, '$1')
+    // 移除粗体/斜体标记
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/___(.+?)___/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    // 移除标题标记
+    .replace(/^#{1,6}\s+/gm, '')
+    // 移除水平线
+    .replace(/^---+$/gm, '')
+    // 移除链接，保留文本
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // 移除 HTML 标签
+    .replace(/<[^>]+>/g, '')
+    // 合并多余空行
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** 判断节点是否为应该显示在聊天中的辩论发言节点 */
+function isDebateSpeechNode(node: string): boolean {
+  if (!node) return false
+  const speechNodes = [
+    'judge_opening', 'plaintiff_opening', 'defendant_opening',
+    'court_investigation', 'plaintiff_rebuttal', 'defendant_rebuttal',
+    'judge_comment', 'judge_verdict', 'judgment_report', 'plain_language',
+  ]
+  return speechNodes.includes(node)
 }
 
 function getPhaseLabel(node: string, round: number): string {
@@ -251,15 +290,18 @@ export default function CourtPage() {
         if (event.type === 'chunk') {
           const chunk = event.data as DebateStreamChunk
 
+          // 更新流程步骤状态（所有节点都更新）
+          updateFlowStep(currentNode || chunk.node, 'done')
+          updateFlowStep(chunk.node, 'running')
+
           if (chunk.node !== currentNode) {
-            if (currentContent && currentNode) {
+            // 保存上一个节点的消息（仅辩论发言节点）
+            if (currentContent && currentNode && isDebateSpeechNode(currentNode)) {
               setMessages(prev => [...prev, {
                 id: `${Date.now()}-${Math.random()}`, role: currentRole,
-                content: currentContent, node: currentNode, round: currentRoundNum, timestamp: new Date(),
+                content: cleanMarkdown(currentContent), node: currentNode, round: currentRoundNum, timestamp: new Date(),
               }])
             }
-            updateFlowStep(currentNode || chunk.node, 'done')
-            updateFlowStep(chunk.node, 'running')
             currentRole = detectRole(chunk.node)
             currentContent = chunk.content
             currentNode = chunk.node
@@ -273,16 +315,20 @@ export default function CourtPage() {
           setCurrentPhaseLabel(getPhaseLabel(chunk.node, currentRoundNum))
           setConfidence(prev => Math.min(95, prev + Math.random() * 2))
 
-          setMessages(prev => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last && last.node === currentNode && last.role === currentRole) {
-              updated[updated.length - 1] = { ...last, content: currentContent }
-            } else {
-              updated.push({ id: `${Date.now()}-${Math.random()}`, role: detectRole(chunk.node), content: currentContent, node: currentNode, round: currentRoundNum, timestamp: new Date() })
-            }
-            return updated
-          })
+          // 仅辩论发言节点实时更新消息列表
+          if (isDebateSpeechNode(currentNode)) {
+            const cleanedContent = cleanMarkdown(currentContent)
+            setMessages(prev => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last && last.node === currentNode && last.role === currentRole) {
+                updated[updated.length - 1] = { ...last, content: cleanedContent }
+              } else {
+                updated.push({ id: `${Date.now()}-${Math.random()}`, role: detectRole(chunk.node), content: cleanedContent, node: currentNode, round: currentRoundNum, timestamp: new Date() })
+              }
+              return updated
+            })
+          }
 
         } else if (event.type === 'metadata') {
           const meta = event.data as { type: string; kfe?: Record<string, unknown> | null; legal_knowledge?: string | null }
@@ -304,16 +350,16 @@ export default function CourtPage() {
           }
 
         } else if (event.type === 'done') {
-          if (currentContent && currentNode) {
+          if (currentContent && currentNode && isDebateSpeechNode(currentNode)) {
             setMessages(prev => [...prev, {
               id: `${Date.now()}-${Math.random()}`, role: currentRole,
-              content: currentContent, node: currentNode, round: currentRoundNum, timestamp: new Date(),
+              content: cleanMarkdown(currentContent), node: currentNode, round: currentRoundNum, timestamp: new Date(),
             }])
           }
           updateFlowStep(currentNode || 'finalize', 'done')
           setFlowSteps(prev => prev.map(s => ({ ...s, status: 'done' as FlowStatus })))
 
-          const done = event.data as DebateStreamDone
+          const done = event.data as DebateStreamDone & { legal_knowledge?: string; kfe?: Record<string, unknown> }
           const summary = done.structured_summary
 
           if (summary) {
@@ -323,6 +369,26 @@ export default function CourtPage() {
             if (summary.evidence_analysis?.length) setEvidences(summary.evidence_analysis.map(e => ({ name: e.name, type: e.type, relevance: e.relevance, conclusion: e.conclusion })))
             if (summary.confidence_score) setConfidence(summary.confidence_score)
             if (summary.can_sign) setCanSign(summary.can_sign)
+          }
+
+          // 从 done 事件补充右侧面板数据（structured_summary 可能为空）
+          // KFE 数据
+          if (!summary?.kfe_items?.length && done.kfe) {
+            const items = Object.entries(done.kfe).map(([key, val]) => ({
+              label: key, value: typeof val === 'string' ? val : JSON.stringify(val), status: 'verified' as const,
+            }))
+            if (items.length > 0) setKfeItems(items)
+          }
+          // 法律知识数据
+          if (!summary?.law_articles?.length && done.legal_knowledge) {
+            const lines = done.legal_knowledge.split('\n').filter((l: string) => l.trim())
+            const articles = lines.slice(0, 6).map((line: string) => ({
+              title: line.split('：')[0]?.trim() || line.slice(0, 40),
+              source: '法律库',
+              excerpt: line.split('：')[1]?.trim() || line.slice(0, 80),
+              relevance: '直接相关',
+            }))
+            if (articles.length > 0) setLawArticles(articles)
           }
 
           setPhase('done')
@@ -371,31 +437,31 @@ export default function CourtPage() {
       case 'running': return <Loader2 size={14} className="text-blue-400 animate-spin" />
       case 'done': return <CircleCheck size={14} className="text-green-400" />
       case 'error': return <X size={14} className="text-red-400" />
-      default: return <Circle size={14} className="text-gold-200/30" />
+      default: return <Circle size={14} className="text-slate-400" />
     }
   }
 
   const CAN_SIGN_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-    '可签': { bg: 'bg-green-500/10', text: 'text-green-400', label: '可签' },
-    '有条件可签': { bg: 'bg-yellow-500/10', text: 'text-yellow-400', label: '有条件可签' },
-    '不建议签': { bg: 'bg-red-500/10', text: 'text-red-400', label: '不建议签' },
-    '待评估': { bg: 'bg-gray-500/10', text: 'text-gray-400', label: '待评估' },
+    '可签': { bg: 'bg-green-50', text: 'text-green-600', label: '可签' },
+    '有条件可签': { bg: 'bg-yellow-50', text: 'text-yellow-600', label: '有条件可签' },
+    '不建议签': { bg: 'bg-red-50', text: 'text-red-600', label: '不建议签' },
+    '待评估': { bg: 'bg-gray-50', text: 'text-gray-500', label: '待评估' },
   }
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar onLoginClick={() => setShowLoginModal(true)} />
 
-      <main className="flex-1 flex flex-col bg-[#0a1628] overflow-hidden">
+      <main className="flex-1 flex flex-col bg-white overflow-hidden">
         {/* 顶部标题栏 */}
-        <div className="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#0d1a2d]/80 backdrop-blur-sm flex-shrink-0">
+        <div className="h-14 border-b border-gray-200 flex items-center justify-between px-6 bg-white backdrop-blur-sm flex-shrink-0">
           <div className="flex items-center gap-3">
             <Gavel size={20} className="text-blue-400" />
-            <h1 className="text-base font-semibold text-gold-200">{caseTitle || '模拟法庭推演'}</h1>
+            <h1 className="text-base font-semibold text-slate-800">{caseTitle || '模拟法庭推演'}</h1>
             {phase !== 'input' && (
               <>
-                <span className="text-gold-200/40">|</span>
-                <span className="text-xs text-gold-200/60">
+                <span className="text-slate-500">|</span>
+                <span className="text-xs text-slate-600">
                   当前阶段：<span className="text-blue-400 font-medium">{currentPhaseLabel || '准备中'}</span>
                   {currentRound > 0 && <span className="ml-1">（第{currentRound}轮）</span>}
                 </span>
@@ -410,35 +476,35 @@ export default function CourtPage() {
                 <span className="text-[10px] opacity-70 ml-1">置信度 {confidence}%</span>
               </div>
             )}
-            <button onClick={handleExportReport} disabled={phase === 'input'} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold-400/10 border border-gold-400/25 text-gold-300 text-xs hover:bg-gold-400/20 transition-colors disabled:opacity-30"><Download size={12} /> 导出报告</button>
+            <button onClick={handleExportReport} disabled={phase === 'input'} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-500 text-xs hover:bg-blue-100 transition-colors disabled:opacity-30"><Download size={12} /> 导出报告</button>
           </div>
         </div>
 
         {/* 主内容区 */}
         <div className="flex-1 flex overflow-hidden">
           {/* 左侧：推演流程 */}
-          <aside className="w-56 border-r border-white/5 flex-shrink-0 overflow-y-auto bg-[#0c1729]/50">
+          <aside className="w-56 border-r border-gray-200 flex-shrink-0 overflow-y-auto bg-slate-50">
             <div className="p-4">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
-                <div className="flex items-center gap-2"><Clock size={14} className="text-blue-400" /><span className="text-xs font-medium text-gold-200/70">推演流程</span></div>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+                <div className="flex items-center gap-2"><Clock size={14} className="text-blue-400" /><span className="text-xs font-medium text-slate-500">推演流程</span></div>
               </div>
 
               {/* 历史案件 */}
               {savedCases.length > 0 && phase === 'input' && (
                 <>
                   <div className="mb-3">
-                    <h4 className="text-[10px] text-gold-200/40 mb-2">历史案件</h4>
+                    <h4 className="text-[10px] text-slate-500 mb-2">历史案件</h4>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
                       {savedCases.slice(0, 5).map(c => (
                         <button key={c.id} onClick={() => loadSavedCase(c)}
-                          className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group">
-                          <p className="text-[11px] text-gold-200/60 truncate group-hover:text-gold-200/80">{c.title}</p>
-                          <p className="text-[9px] text-gold-200/25">{new Date(c.createdAt).toLocaleDateString('zh-CN')}</p>
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-50 transition-colors group">
+                          <p className="text-[11px] text-slate-600 truncate group-hover:text-slate-600">{c.title}</p>
+                          <p className="text-[9px] text-slate-300">{new Date(c.createdAt).toLocaleDateString('zh-CN')}</p>
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="border-t border-white/5 mb-4" />
+                  <div className="border-t border-gray-200 mb-4" />
                 </>
               )}
 
@@ -446,11 +512,11 @@ export default function CourtPage() {
                 {flowSteps.map((step) => (
                   <motion.div key={step.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                     className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-default transition-all ${
-                      step.status === 'running' ? 'bg-blue-500/10 border border-blue-400/20' : step.status === 'done' ? 'hover:bg-white/5' : 'opacity-50'
+                      step.status === 'running' ? 'bg-blue-500/10 border border-blue-400/20' : step.status === 'done' ? 'hover:bg-slate-50' : 'opacity-50'
                     }`}>
                     {flowIcon(step.status)}
-                    <span className={`flex-1 truncate ${step.status === 'running' ? 'text-blue-400 font-medium' : step.status === 'done' ? 'text-gold-200/70' : 'text-gold-200/40'}`}>{step.label}</span>
-                    {step.time && <span className="text-[10px] text-gold-200/25">{step.time}</span>}
+                    <span className={`flex-1 truncate ${step.status === 'running' ? 'text-blue-400 font-medium' : step.status === 'done' ? 'text-slate-500' : 'text-slate-500'}`}>{step.label}</span>
+                    {step.time && <span className="text-[10px] text-slate-300">{step.time}</span>}
                   </motion.div>
                 ))}
               </div>
@@ -465,31 +531,31 @@ export default function CourtPage() {
                 <div className="w-full max-w-2xl space-y-6">
                   <div className="text-center mb-2">
                     <Gavel size={36} className="text-blue-400 mx-auto mb-3" />
-                    <h2 className="text-xl font-bold text-gold-200">模拟法庭推演</h2>
-                    <p className="text-sm text-gold-200/40 mt-1">输入案件信息，启动多智能体庭审辩论</p>
+                    <h2 className="text-xl font-bold text-slate-800">模拟法庭推演</h2>
+                    <p className="text-sm text-slate-500 mt-1">输入案件信息，启动多智能体庭审辩论</p>
                   </div>
 
                   <div>
-                    <label className="text-xs text-gold-200/60 mb-1.5 block">案件标题</label>
+                    <label className="text-xs text-slate-600 mb-1.5 block">案件标题</label>
                     <input value={caseTitle} onChange={e => setCaseTitle(e.target.value)}
                       placeholder="例：民间借贷纠纷案"
-                      className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-gold-200 placeholder:text-gold-200/25 focus:outline-none focus:border-blue-400/40 transition-all" />
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-400/40 transition-all" />
                   </div>
 
                   <div>
-                    <label className="text-xs text-gold-200/60 mb-1.5 block">案件描述 <span className="text-red-400">*</span></label>
+                    <label className="text-xs text-slate-600 mb-1.5 block">案件描述 <span className="text-red-400">*</span></label>
                     <textarea value={caseDescription} onChange={e => setCaseDescription(e.target.value)}
                       placeholder="请详细描述案件事实、当事人关系、争议内容..."
                       rows={6}
-                      className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-gold-200 placeholder:text-gold-200/25 focus:outline-none focus:border-blue-400/40 transition-all resize-none" />
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-400/40 transition-all resize-none" />
                   </div>
 
                   <div>
-                    <label className="text-xs text-gold-200/60 mb-1.5 block">证据摘要（可选）</label>
+                    <label className="text-xs text-slate-600 mb-1.5 block">证据摘要（可选）</label>
                     <textarea value={evidenceSummary} onChange={e => setEvidenceSummary(e.target.value)}
                       placeholder="列举案件相关证据材料..."
                       rows={3}
-                      className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-gold-200 placeholder:text-gold-200/25 focus:outline-none focus:border-blue-400/40 transition-all resize-none" />
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-400/40 transition-all resize-none" />
                   </div>
 
                   <button onClick={handleStartDebate} disabled={!caseDescription.trim()}
@@ -501,12 +567,12 @@ export default function CourtPage() {
             ) : (
               /* 辩论进行中/完成 */
               <>
-                <div className="h-11 border-b border-white/5 flex items-center justify-between px-4 flex-shrink-0">
+                <div className="h-11 border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
                   <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gold-200/60"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
-                    <span className="text-xs font-medium text-gold-200/70">庭审推演（多智能体协同）</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-600"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+                    <span className="text-xs font-medium text-slate-500">庭审推演（多智能体协同）</span>
                   </div>
-                  <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="text-[10px] bg-transparent border border-white/10 rounded px-2 py-1 text-gold-200/50 focus:outline-none focus:border-gold-400/30">
+                  <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="text-[10px] bg-transparent border border-gray-200 rounded px-2 py-1 text-slate-400 focus:outline-none focus:border-blue-200">
                     <option value="all">显示全部</option>
                     <option value="judge">仅法官</option>
                     <option value="lawyer">仅律师</option>
@@ -530,10 +596,10 @@ export default function CourtPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1.5">
                                 <span className={`text-sm font-semibold ${config.text}`}>{config.label}</span>
-                                {msg.round && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gold-200/50">第{msg.round}轮</span>}
-                                <span className="text-[10px] text-gold-200/30 ml-auto">{msg.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                {msg.round && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">第{msg.round}轮</span>}
+                                <span className="text-[10px] text-slate-400 ml-auto">{msg.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                               </div>
-                              <div className="text-xs text-gold-200/75 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                              <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                             </div>
                           </div>
                         </motion.div>
@@ -542,16 +608,16 @@ export default function CourtPage() {
                   </AnimatePresence>
                   {isStreaming && messages.length === 0 && (
                     <div className="flex items-center justify-center py-20">
-                      <div className="flex items-center gap-3 text-gold-200/40"><Loader2 size={20} className="animate-spin text-blue-400" /><span className="text-sm">正在分析案情，提取关键法律事实...</span></div>
+                      <div className="flex items-center gap-3 text-slate-500"><Loader2 size={20} className="animate-spin text-blue-400" /><span className="text-sm">正在分析案情，提取关键法律事实...</span></div>
                     </div>
                   )}
                   <div ref={messagesEndRef} />
                 </div>
 
-                <div className="h-11 border-t border-white/5 flex items-center justify-between px-4 flex-shrink-0 bg-[#0c1729]/80">
+                <div className="h-11 border-t border-gray-200 flex items-center justify-between px-4 flex-shrink-0 bg-white">
                   <div className="flex items-center gap-2">
                     {isStreaming && (<button onClick={handleStop} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-400/30 text-red-400 text-xs hover:bg-red-400/10"><StopCircle size={12} /> 停止推演</button>)}
-                    {phase === 'done' && !isStreaming && (<button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gold-400/25 text-gold-300 text-xs hover:bg-gold-400/10"><RefreshCw size={12} /> 新案件</button>)}
+                    {phase === 'done' && !isStreaming && (<button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-500 text-xs hover:bg-blue-50"><RefreshCw size={12} /> 新案件</button>)}
                   </div>
                 </div>
               </>
@@ -559,11 +625,11 @@ export default function CourtPage() {
           </section>
 
           {/* 右侧信息面板 */}
-          <aside className="w-72 border-l border-white/5 flex-shrink-0 overflow-y-auto bg-[#0c1729]/50">
+          <aside className="w-72 border-l border-gray-200 flex-shrink-0 overflow-y-auto bg-slate-50">
             <div className="p-4">
-              <div className="flex items-center gap-1 mb-4 p-1 rounded-lg bg-white/5">
+              <div className="flex items-center gap-1 mb-4 p-1 rounded-lg bg-slate-100">
                 {(['evidence', 'law', 'kfe'] as const).map(tab => (
-                  <button key={tab} onClick={() => setActiveRightTab(tab)} className={`flex-1 text-[11px] py-1.5 rounded-md transition-all font-medium ${activeRightTab === tab ? 'bg-blue-500/20 text-blue-400 shadow-sm' : 'text-gold-200/45 hover:text-gold-200/70'}`}>
+                  <button key={tab} onClick={() => setActiveRightTab(tab)} className={`flex-1 text-[11px] py-1.5 rounded-md transition-all font-medium ${activeRightTab === tab ? 'bg-blue-500/20 text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-600'}`}>
                     {tab === 'evidence' ? '证据' : tab === 'law' ? '法条' : 'KFE'}
                   </button>
                 ))}
@@ -571,41 +637,41 @@ export default function CourtPage() {
 
               {activeRightTab === 'evidence' && (
                 <div className="space-y-3">
-                  <span className="text-xs font-medium text-gold-200/70">证据分析 ({evidences.length})</span>
+                  <span className="text-xs font-medium text-slate-500">证据分析 ({evidences.length})</span>
                   {evidences.length > 0 ? (
                     <div className="space-y-2">
                       {evidences.map((ev, i) => (
-                        <div key={i} className="rounded-lg bg-white/[0.03] border border-white/5 p-2.5">
+                        <div key={i} className="rounded-lg bg-slate-50 border border-gray-200 p-2.5">
                           <div className="flex items-start gap-2">
                             <FileText size={12} className="text-blue-400 mt-0.5" />
                             <div>
-                              <p className="text-[11px] text-gold-200/80">{ev.name}</p>
-                              <p className="text-[9px] text-gold-200/30">{ev.relevance} · {ev.conclusion?.slice(0, 30)}</p>
+                              <p className="text-[11px] text-slate-600">{ev.name}</p>
+                              <p className="text-[9px] text-slate-400">{ev.relevance} · {ev.conclusion?.slice(0, 30)}</p>
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-gold-200/30 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '等待证据分析完成...'}</p>
+                    <p className="text-[11px] text-slate-400 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '等待证据分析完成...'}</p>
                   )}
                 </div>
               )}
 
               {activeRightTab === 'law' && (
                 <div className="space-y-3">
-                  <span className="text-xs font-medium text-gold-200/70">引用法条 ({lawArticles.length})</span>
+                  <span className="text-xs font-medium text-slate-500">引用法条 ({lawArticles.length})</span>
                   {lawArticles.length > 0 ? (
                     <div className="space-y-2">
                       {lawArticles.map((a, i) => (
                         <div key={i} className="rounded-lg bg-blue-500/5 border border-blue-400/10 p-2.5">
                           <div className="flex items-center gap-1.5 mb-1"><BookOpen size={10} className="text-blue-400/60" /><span className="text-[10px] text-blue-400/90 font-medium line-clamp-1">{a.title}</span></div>
-                          <p className="text-[10px] text-gold-200/45 leading-relaxed line-clamp-2">{a.excerpt}</p>
+                          <p className="text-[10px] text-slate-500 leading-relaxed line-clamp-2">{a.excerpt}</p>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-gold-200/30 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '辩论中自动检索...'}</p>
+                    <p className="text-[11px] text-slate-400 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '辩论中自动检索...'}</p>
                   )}
                 </div>
               )}
@@ -613,22 +679,22 @@ export default function CourtPage() {
               {activeRightTab === 'kfe' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gold-200/70">KFE 关键要素</span>
+                    <span className="text-xs font-medium text-slate-500">KFE 关键要素</span>
                   </div>
                   {kfeItems.length > 0 ? (
                     <div className="space-y-2">
                       {kfeItems.map((item, i) => (
-                        <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-white/[0.02]">
-                          <span className="text-[11px] text-gold-200/55 w-16 flex-shrink-0">{item.label}</span>
-                          <span className="text-[11px] text-gold-200/75 truncate">{item.value}</span>
-                          <span className={`text-[10px] flex-shrink-0 ml-2 ${item.status === 'verified' ? 'text-green-400' : item.status === 'unverified' ? 'text-red-400' : 'text-gold-200/30'}`}>
+                        <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50">
+                          <span className="text-[11px] text-slate-500 w-16 flex-shrink-0">{item.label}</span>
+                          <span className="text-[11px] text-slate-600 truncate">{item.value}</span>
+                          <span className={`text-[10px] flex-shrink-0 ml-2 ${item.status === 'verified' ? 'text-green-400' : item.status === 'unverified' ? 'text-red-400' : 'text-slate-400'}`}>
                             {item.status === 'verified' ? '已收敛' : item.status === 'unverified' ? '未收敛' : '待检测'}
                           </span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-gold-200/30 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '正在提取关键法律事实...'}</p>
+                    <p className="text-[11px] text-slate-400 text-center py-4">{phase === 'input' ? '输入案件后开始推演' : '正在提取关键法律事实...'}</p>
                   )}
                 </div>
               )}
@@ -638,13 +704,13 @@ export default function CourtPage() {
 
         {/* 底部报告区 */}
         {messages.length > 0 && (
-          <div className="h-52 border-t border-white/5 bg-[#0c1729]/80 flex-shrink-0">
+          <div className="h-52 border-t border-gray-200 bg-white flex-shrink-0">
             <div className="h-full flex flex-col">
-              <div className="h-10 border-b border-white/5 flex items-center justify-between px-4 flex-shrink-0">
-                <div className="flex items-center gap-2"><FileText size={14} className="text-gold-200/60" /><span className="text-xs font-medium text-gold-200/70">分析报告</span></div>
+              <div className="h-10 border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
+                <div className="flex items-center gap-2"><FileText size={14} className="text-slate-600" /><span className="text-xs font-medium text-slate-500">分析报告</span></div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setActiveBottomTab('report')} className={`text-[11px] px-3 py-1 rounded transition-all ${activeBottomTab === 'report' ? 'text-blue-400 bg-blue-500/15' : 'text-gold-200/40 hover:text-gold-200/60'}`}>案件分析</button>
-                  <button onClick={() => setActiveBottomTab('solution')} className={`text-[11px] px-3 py-1 rounded transition-all ${activeBottomTab === 'solution' ? 'text-blue-400 bg-blue-500/15' : 'text-gold-200/40 hover:text-gold-200/60'}`}>调解方案</button>
+                  <button onClick={() => setActiveBottomTab('report')} className={`text-[11px] px-3 py-1 rounded transition-all ${activeBottomTab === 'report' ? 'text-blue-400 bg-blue-500/15' : 'text-slate-500 hover:text-slate-600'}`}>案件分析</button>
+                  <button onClick={() => setActiveBottomTab('solution')} className={`text-[11px] px-3 py-1 rounded transition-all ${activeBottomTab === 'solution' ? 'text-blue-400 bg-blue-500/15' : 'text-slate-500 hover:text-slate-600'}`}>调解方案</button>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4">
@@ -658,12 +724,12 @@ export default function CourtPage() {
                         { key: 'conclusion' as const, title: '裁判结论', num: '四' },
                       ].map(sec => (
                         <div key={sec.key} className="space-y-2">
-                          <h4 className="text-[11px] font-semibold text-gold-200/80 flex items-center gap-1.5">
+                          <h4 className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5">
                             <span className="w-4 h-4 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center text-[9px]">{sec.num}</span>{sec.title}
                           </h4>
                           <ul className="space-y-1.5 pl-5">
                             {(structuredReport.report_sections?.[sec.key] || ['等待生成...']).map((item, i) => (
-                              <li key={i} className="text-[10px] text-gold-200/60 list-disc">{item}</li>
+                              <li key={i} className="text-[10px] text-slate-600 list-disc">{item}</li>
                             ))}
                           </ul>
                         </div>
@@ -671,18 +737,18 @@ export default function CourtPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-4 h-full">
-                      <div className="border border-white/5 rounded-lg p-3">
-                        <h4 className="text-[11px] font-semibold text-gold-200/80 mb-2">调解方案草案</h4>
-                        <p className="text-[10px] text-gold-200/60 leading-relaxed whitespace-pre-wrap">{structuredReport.mediation_suggestion?.draft || '基于庭审辩论结果，建议双方就争议焦点达成谅解...'}</p>
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <h4 className="text-[11px] font-semibold text-slate-600 mb-2">调解方案草案</h4>
+                        <p className="text-[10px] text-slate-600 leading-relaxed whitespace-pre-wrap">{structuredReport.mediation_suggestion?.draft || '基于庭审辩论结果，建议双方就争议焦点达成谅解...'}</p>
                       </div>
-                      <div className="border border-white/5 rounded-lg p-3">
-                        <h4 className="text-[11px] font-semibold text-gold-200/80 mb-2">执行保障措施</h4>
-                        <p className="text-[10px] text-gold-200/60 leading-relaxed whitespace-pre-wrap">{structuredReport.mediation_suggestion?.enforcement || '为确保调解协议得到有效执行，建议采取以下保障措施...'}</p>
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <h4 className="text-[11px] font-semibold text-slate-600 mb-2">执行保障措施</h4>
+                        <p className="text-[10px] text-slate-600 leading-relaxed whitespace-pre-wrap">{structuredReport.mediation_suggestion?.enforcement || '为确保调解协议得到有效执行，建议采取以下保障措施...'}</p>
                       </div>
                     </div>
                   )
                 ) : (
-                  <div className="flex items-center justify-center h-full text-[11px] text-gold-200/35">
+                  <div className="flex items-center justify-center h-full text-[11px] text-slate-400">
                     {isStreaming ? '等待辩论完成后自动生成结构化报告...' : '暂无报告数据'}
                   </div>
                 )}

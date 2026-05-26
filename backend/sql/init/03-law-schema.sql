@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS legal_provisions (
     content TEXT NOT NULL,
     effective_date DATE,
     status VARCHAR(32) DEFAULT 'active',
-    keywords TEXT[] DEFAULT '{}',
+    keywords JSONB DEFAULT '[]',
     embedding vector(1024),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW(),
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS judicial_interpretations (
     effective_date DATE,
     content TEXT NOT NULL,
     related_laws TEXT,
-    keywords TEXT[] DEFAULT '{}',
+    keywords JSONB DEFAULT '[]',
     embedding vector(1024),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW()
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS administrative_regulations (
     effective_date DATE,
     content TEXT NOT NULL,
     category VARCHAR(128),
-    keywords TEXT[] DEFAULT '{}',
+    keywords JSONB DEFAULT '[]',
     embedding vector(1024),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW()

@@ -1,3 +1,4 @@
+# ========== Python ==========
 venv/
 .venv/
 env/
@@ -8,39 +9,67 @@ __pycache__/
 dist/
 build/
 *.egg
+*.tsbuildinfo
 
+# ========== Node.js ==========
 node_modules/
 .next/
 out/
 .turbo/
 
+# ========== 密钥与敏感文件 ==========
 .env
 .env.local
 .env.*.local
 *.pem
 *.key
-
 litellm/secrets.yaml
 litellm/.env
 
-cuda-repo-wsl-ubuntu-*.deb
+# ========== AI 模型文件（体积过大，不提交） ==========
+models/
+*.safetensors
+*.bin
+*.gguf
+*.onnx
+*.pt
+*.h5
+*.pkl
 
+# ========== 向量数据库与本地存储 ==========
+data/qdrant_data/
+backend/data/qdrant_local/
+*.sqlite
+*.lock
+
+# ========== 大型数据集 ==========
+data/law/laws.json
+data/law/laws.json.zip
+data/lawyer/CAIL2018_ALL_DATA.zip
+data/lawyer/CAIL2018/
+data/lawyer/cleaned/
+data/judge/cleaned/
+data/judge/*.txt
+*.json.zip
+
+# ========== 用户上传文件（含隐私） ==========
+backend/uploads/
+
+# ========== 导入脚本运行时产物 ==========
+backend/scripts/.import_logs/
+backend/scripts/.import_progress/
+
+# ========== 系统与 IDE ==========
+cuda-repo-wsl-ubuntu-*.deb
 .idea/
 .vscode/
 *.swp
 *.swo
 .DS_Store
 Thumbs.db
-
+*:Zone.Identifier
 .trae/
 .nvm
 
-# 大型数据文件
-data/law/laws.json
-data/law/laws.json.zip
-data/lawyer/CAIL2018_ALL_DATA.zip
-data/lawyer/CAIL2018_ALL_DATA.zip:Zone.Identifier
-data/lawyer/cleaned/
-data/judge/cleaned/
-data/judge/*.txt
-*.json.zip
+# ========== 日志 ==========
+*.log

@@ -65,12 +65,18 @@ async def scan_risks_node(state: ContractReviewState, llm: BaseChatModel) -> dic
         classification=state.get("classification"),
     )
 
-    # 统计风险数量
-    all_issues = risks.get("meso_issues", []) + risks.get("micro_issues", []) + risks.get("loopholes", [])
+    # 统计风险数量（安全处理非 dict 元素）
+    all_issues = []
+    for key in ("meso_issues", "micro_issues", "loopholes"):
+        items = risks.get(key, [])
+        if isinstance(items, list):
+            all_issues.extend(i for i in items if isinstance(i, dict))
     p0 = len([r for r in all_issues if r.get("risk_level") == "P0"])
     p1 = len([r for r in all_issues if r.get("risk_level") == "P1"])
-    compliance = len(risks.get("compliance_issues", []))
-    unfair = len(risks.get("unfair_terms", []))
+    compliance_items = risks.get("compliance_issues", [])
+    compliance = len(compliance_items) if isinstance(compliance_items, list) else 0
+    unfair_items = risks.get("unfair_terms", [])
+    unfair = len(unfair_items) if isinstance(unfair_items, list) else 0
     logger.info("风险扫描完成: P0=%d, P1=%d, 合规问题=%d, 不公平条款=%d", p0, p1, compliance, unfair)
 
     return {"risks": risks}
@@ -90,7 +96,11 @@ async def generate_report_node(state: ContractReviewState, llm: BaseChatModel) -
 
     classification = state.get("classification", {})
     risks = state.get("risks", {})
-    all_issues = risks.get("meso_issues", []) + risks.get("micro_issues", []) + risks.get("loopholes", [])
+    # 安全提取风险列表
+    meso = risks.get("meso_issues", []) if isinstance(risks.get("meso_issues"), list) else []
+    micro = risks.get("micro_issues", []) if isinstance(risks.get("micro_issues"), list) else []
+    loopholes = risks.get("loopholes", []) if isinstance(risks.get("loopholes"), list) else []
+    all_issues = [i for i in meso + micro + loopholes if isinstance(i, dict)]
     p0_count = len([r for r in all_issues if r.get("risk_level") == "P0"])
     p1_count = len([r for r in all_issues if r.get("risk_level") == "P1"])
     p2_count = len([r for r in all_issues if r.get("risk_level") == "P2"])
@@ -170,6 +180,12 @@ Playbook 合规检查：
 - 常见风险：{', '.join(playbook.get('common_risks', []))}
 """
 
+    RISK_FIELDS = ['risk_name', 'risk_level', 'severity', 'likelihood', 'risk_consequence', 'related_clauses', 'original_text', 'suggested_text']
+    meso_filtered = [{k: v for k, v in i.items() if k in RISK_FIELDS} for i in meso_issues[:6]]
+    micro_filtered = [{k: v for k, v in i.items() if k in RISK_FIELDS} for i in micro_issues[:6]]
+    meso_json = json.dumps(meso_filtered, ensure_ascii=False)[:2000] if meso_issues else '无'
+    micro_json = json.dumps(micro_filtered, ensure_ascii=False)[:2000] if micro_issues else '无'
+
     prompt = f"""基于以下合同审查结果，生成前端可用的结构化JSON（严格输出JSON，不要markdown标记）：
 
 【合同基本信息】
@@ -187,10 +203,10 @@ P0致命：{summary.get('p0_count', 0)}项 | P1严重：{summary.get('p1_count',
 {json.dumps([{'title': c.get('title',''), 'content': c.get('content','')[:200]} for c in clauses_raw[:12]], ensure_ascii=False)[:2000]}
 
 【中观层问题】({len(meso_issues)}条)
-{json.dumps([{{k: v for k, v in i.items() if k in ['risk_name', 'risk_level', 'severity', 'likelihood', 'risk_consequence', 'related_clauses', 'original_text', 'suggested_text']}} for i in meso_issues[:6]], ensure_ascii=False)[:2000] if meso_issues else '无'}
+{meso_json}
 
 【微观层问题】({len(micro_issues)}条)
-{json.dumps([{{k: v for k, v in i.items() if k in ['risk_name', 'risk_level', 'severity', 'likelihood', 'risk_consequence', 'related_clauses', 'original_text', 'suggested_text']}} for i in micro_issues[:6]], ensure_ascii=False)[:2000] if micro_issues else '无'}
+{micro_json}
 
 【漏洞检测】({len(loopholes)}条)
 {json.dumps(loopholes[:5], ensure_ascii=False)[:1500] if loopholes else '无'}
