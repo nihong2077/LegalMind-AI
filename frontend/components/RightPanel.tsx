@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   ChevronRight, Star, Lightbulb, AlertTriangle,
-  BookOpen, HelpCircle, Shield, Zap, FileText
+  BookOpen, HelpCircle, Shield, Zap
 } from 'lucide-react'
 import { useChatStore } from '@/store/useChatStore'
 
@@ -49,7 +49,7 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
           </div>
           {(activeSection === 'quick' || !activeSection) && (
             <div className="flex flex-wrap gap-1.5">
-              {['律法不退', '借款纠纷', '劳动合同', '合规咨询'].map((q, i) => (
+              {(quickQuestions.length > 0 ? quickQuestions : ['押金不退', '借款纠纷', '劳动合同', '合规咨询']).map((q, i) => (
                 <button key={i} onClick={() => onQuickQuestionClick?.(q)}
                   className="px-2.5 py-1 rounded-full border border-gray-200 text-[10px] text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all">
                   {q}

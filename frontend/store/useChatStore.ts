@@ -257,7 +257,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const newMsg: Message = {
         ...message,
-        id: Date.now().toString() + Math.random().toString(36).slice(2),
+        id: crypto.randomUUID(),
         timestamp: new Date(),
       }
       const newMessages = [...state.messages, newMsg]
@@ -302,7 +302,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...state.cases,
         {
           ...caseItem,
-          id: Date.now().toString(),
+          id: crypto.randomUUID(),
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -322,7 +322,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...state.documents,
         {
           ...doc,
-          id: Date.now().toString() + Math.random().toString(36).slice(2),
+          id: crypto.randomUUID(),
           uploadedAt: new Date(),
         },
       ],
@@ -424,7 +424,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createSession: () => {
-    const id = Date.now().toString() + Math.random().toString(36).slice(2)
+    const id = crypto.randomUUID()
     const session: Session = {
       id,
       title: '新对话',
@@ -554,7 +554,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 先添加文档到列表，获取本地 ID
     let localDocId = ''
     set((s) => {
-      localDocId = Date.now().toString() + Math.random().toString(36).slice(2)
+      localDocId = crypto.randomUUID()
       return {
         documents: [
           ...s.documents,

@@ -44,8 +44,10 @@ export function isAuthenticated(): boolean {
 }
 
 export async function login(username: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/token?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`, {
+  const res = await fetch(`${API_BASE}/api/auth/token`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: '登录失败' }))
@@ -80,11 +82,60 @@ export async function chatCompletion(messages: ChatMessage[], model = 'deepseek-
   return res.json()
 }
 
+/** 通用 SSE 流解析器，供 chatStream / debateStream / contractReviewStream 复用 */
+async function* parseSSEStream<T>(
+  res: Response,
+  eventMap: Record<string, (parsed: unknown) => T>,
+): AsyncGenerator<T> {
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error('无法获取响应流')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      let currentEvent = ''
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          const rawData = line.slice(6)
+          try {
+            const parsed = JSON.parse(rawData)
+            const mapper = eventMap[currentEvent]
+            if (mapper) {
+              yield mapper(parsed)
+            }
+          } catch {
+            // 忽略非 JSON 数据（如 ping）
+          }
+          currentEvent = ''
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+type ChatStreamEvent =
+  | { type: 'chunk'; data: StreamChunk }
+  | { type: 'done'; data: StreamDone }
+  | { type: 'error'; data: StreamError }
+
 export async function* chatStream(
   messages: ChatMessage[],
   model = 'deepseek-flash',
   signal?: AbortSignal,
-): AsyncGenerator<{ type: 'chunk' | 'done' | 'error'; data: StreamChunk | StreamDone | StreamError }> {
+): AsyncGenerator<ChatStreamEvent> {
   const token = getToken()
   if (!token) throw new Error('未登录')
 
@@ -109,46 +160,11 @@ export async function* chatStream(
     throw new Error(err.detail || '请求失败')
   }
 
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error('无法获取响应流')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  try {
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    let currentEvent = ''
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        const rawData = line.slice(6)
-        try {
-          const parsed = JSON.parse(rawData)
-          if (currentEvent === 'message') {
-            yield { type: 'chunk', data: parsed as StreamChunk }
-          } else if (currentEvent === 'done') {
-            yield { type: 'done', data: parsed as StreamDone }
-          } else if (currentEvent === 'error') {
-            yield { type: 'error', data: parsed as StreamError }
-          }
-        } catch {
-          // 忽略非 JSON 数据（如 ping）
-        }
-        currentEvent = ''
-      }
-    }
-  }
-  } finally {
-    reader.releaseLock()
-  }
+  yield* parseSSEStream<ChatStreamEvent>(res, {
+    message: (p) => ({ type: 'chunk', data: p as StreamChunk }),
+    done: (p) => ({ type: 'done', data: p as StreamDone }),
+    error: (p) => ({ type: 'error', data: p as StreamError }),
+  })
 }
 
 export async function checkHealth(): Promise<{ status: string; redis?: unknown; litellm?: unknown }> {
@@ -381,10 +397,16 @@ export interface DebateMetadata {
   legal_knowledge?: string | null
 }
 
+type DebateStreamEvent =
+  | { type: 'chunk'; data: DebateStreamChunk }
+  | { type: 'done'; data: DebateStreamDone }
+  | { type: 'error'; data: StreamError }
+  | { type: 'metadata'; data: DebateMetadata }
+
 export async function* debateStream(
   body: DebateRequest,
   signal?: AbortSignal,
-): AsyncGenerator<{ type: 'chunk' | 'done' | 'error' | 'metadata'; data: DebateStreamChunk | DebateStreamDone | StreamError | DebateMetadata }> {
+): AsyncGenerator<DebateStreamEvent> {
   const token = getToken()
   if (!token) throw new Error('未登录')
 
@@ -409,48 +431,12 @@ export async function* debateStream(
     throw new Error(err.detail || '请求失败')
   }
 
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error('无法获取响应流')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  try {
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    let currentEvent = ''
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        const rawData = line.slice(6)
-        try {
-          const parsed = JSON.parse(rawData)
-          if (currentEvent === 'message') {
-            yield { type: 'chunk', data: parsed as DebateStreamChunk }
-          } else if (currentEvent === 'done') {
-            yield { type: 'done', data: parsed as DebateStreamDone }
-          } else if (currentEvent === 'error') {
-            yield { type: 'error', data: parsed as StreamError }
-          } else if (currentEvent === 'metadata') {
-            yield { type: 'metadata', data: parsed as DebateMetadata }
-          }
-        } catch {
-          // 忽略非 JSON 数据
-        }
-        currentEvent = ''
-      }
-    }
-  }
-  } finally {
-    reader.releaseLock()
-  }
+  yield* parseSSEStream<DebateStreamEvent>(res, {
+    message: (p) => ({ type: 'chunk', data: p as DebateStreamChunk }),
+    done: (p) => ({ type: 'done', data: p as DebateStreamDone }),
+    error: (p) => ({ type: 'error', data: p as StreamError }),
+    metadata: (p) => ({ type: 'metadata', data: p as DebateMetadata }),
+  })
 }
 
 export interface ContractReviewRequest {
@@ -526,10 +512,16 @@ export interface ContractReviewMetadata {
   missing_clauses?: string[]
 }
 
+type ContractReviewStreamEvent =
+  | { type: 'chunk'; data: { node: string; content: string } }
+  | { type: 'done'; data: ContractReviewDone }
+  | { type: 'error'; data: StreamError }
+  | { type: 'metadata'; data: ContractReviewMetadata }
+
 export async function* contractReviewStream(
   body: ContractReviewRequest,
   signal?: AbortSignal,
-): AsyncGenerator<{ type: 'chunk' | 'done' | 'error' | 'metadata'; data: { node: string; content: string } | ContractReviewDone | StreamError | ContractReviewMetadata }> {
+): AsyncGenerator<ContractReviewStreamEvent> {
   const token = getToken()
   if (!token) throw new Error('未登录')
 
@@ -554,46 +546,10 @@ export async function* contractReviewStream(
     throw new Error(err.detail || '请求失败')
   }
 
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error('无法获取响应流')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  try {
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    let currentEvent = ''
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        const rawData = line.slice(6)
-        try {
-          const parsed = JSON.parse(rawData)
-          if (currentEvent === 'message') {
-            yield { type: 'chunk', data: parsed as { node: string; content: string } }
-          } else if (currentEvent === 'done') {
-            yield { type: 'done', data: parsed as ContractReviewDone }
-          } else if (currentEvent === 'error') {
-            yield { type: 'error', data: parsed as StreamError }
-          } else if (currentEvent === 'metadata') {
-            yield { type: 'metadata', data: parsed as ContractReviewMetadata }
-          }
-        } catch {
-          // 忽略非 JSON 数据
-        }
-        currentEvent = ''
-      }
-    }
-  }
-  } finally {
-    reader.releaseLock()
-  }
+  yield* parseSSEStream<ContractReviewStreamEvent>(res, {
+    message: (p) => ({ type: 'chunk', data: p as { node: string; content: string } }),
+    done: (p) => ({ type: 'done', data: p as ContractReviewDone }),
+    error: (p) => ({ type: 'error', data: p as StreamError }),
+    metadata: (p) => ({ type: 'metadata', data: p as ContractReviewMetadata }),
+  })
 }

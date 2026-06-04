@@ -218,9 +218,31 @@ export default function ChatInterface() {
           )}
         </AnimatePresence>
 
-        {/* 快捷问题卡片 */}
+        {/* 欢迎介绍 + 快捷问题卡片 */}
         {messages.length === 0 && !showHistory && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+            {/* AI 固定欢迎介绍 */}
+            <div className="flex justify-start gap-3 mb-5">
+              <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0 mt-1">
+                <Sparkles size={14} className="text-blue-600" />
+              </div>
+              <div className="glass-card-static rounded-2xl rounded-tl-sm overflow-hidden max-w-[72%]">
+                <div className="p-4 space-y-2">
+                  <p className="text-xs font-semibold text-slate-700">你好，我是 LegalMind AI</p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    我是一个专业的中国法律智能助手，可以为您提供法律分析、条文解读和操作建议。
+                    请直接输入您的法律问题，我会立即为您解答。
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[9px] text-blue-600 border border-blue-100">民事纠纷</span>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[9px] text-purple-600 border border-purple-100">合同审查</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-[9px] text-emerald-600 border border-emerald-100">劳动维权</span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-50 text-[9px] text-amber-600 border border-amber-100">消费维权</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* 快捷问题 */}
             <div className="flex items-center gap-2 mb-3">
               <Lightbulb size={14} className="text-slate-400" />
               <span className="text-xs font-medium text-slate-500">不知道怎么问？试试这些问题</span>

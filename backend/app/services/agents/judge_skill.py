@@ -69,7 +69,7 @@ class JudgeSkill:
         self.system_prompt = JUDGE_SYSTEM_PROMPT
 
     # ----------------------------------------------------------
-    # 1. 开庭主持 — 归纳争议焦点，确定辩论方向
+    # 1. 开庭主持 — 归纳争议焦点，确定辩论方向（JSON 版本，用于状态存储）
     # ----------------------------------------------------------
 
     async def preside_opening(
@@ -121,6 +121,67 @@ class JudgeSkill:
         ]
         response = await self.llm.ainvoke(messages)
         return self._extract_json_or_text(response.content)
+
+    # ----------------------------------------------------------
+    # 1b. 开庭主持 — 自然语言分节发言（用于前端分泡展示）
+    #     返回 4 段独立发言：开庭致辞 / 争议焦点 / 需查明事实 / 辩论指引
+    # ----------------------------------------------------------
+
+    async def preside_opening_speech(
+        self,
+        plaintiff_claim: str,
+        defendant_response: str = "",
+        kfe: Optional[dict] = None,
+        legal_knowledge: str = "",
+    ) -> list[str]:
+        """开庭主持：生成 4 段自然语言发言，分别在前端独立气泡展示"""
+        kfe_section = ""
+        if kfe:
+            kfe_section = f"\n关键法律事实（KFE）：\n{json.dumps(kfe, ensure_ascii=False, indent=2)}"
+
+        law_section = ""
+        if legal_knowledge:
+            law_section = f"\n相关法律知识：\n{legal_knowledge[:2000]}"
+
+        prompt = f"""你是一位资深中国法官，请主持本次庭审的开庭阶段。请用自然的口语化语言发言，就像真实法庭上法官说的话一样——不要输出JSON、不要输出任何结构化标记。
+
+原告诉求：
+{plaintiff_claim}
+
+被告回应：
+{defendant_response or "（被告尚未回应）"}
+{kfe_section}
+{law_section}
+
+请严格按以下格式输出4段发言，段与段之间用单独一行的 "---NEXT---" 分隔：
+
+第1段 — 开庭致辞：宣布开庭，说明庭审程序、法庭纪律、双方权利义务。语气庄重、口语化，就像真实的法官开庭词。
+
+第2段 — 争议焦点归纳：向双方宣布本庭归纳的争议焦点，每个焦点用自然语言说明（如"第一个争议焦点是……"），包括双方立场。
+
+第3段 — 需要查明的事实：列出本庭认为需要进一步查明的关键事实问题，用口语化的提问或说明方式。
+
+第4段 — 辩论指引：指示双方围绕争议焦点展开辩论，说明辩论规则和注意事项，宣布进入法庭调查阶段。
+
+注意：
+- 不要输出JSON、不要输出代码块、不要输出任何花括号
+- 用"---NEXT---"作为段与段之间的唯一分隔符（独占一行）
+- 每段都是完整的、能独立成篇的法官发言
+- 字数控制在：第1段100-200字，第2段200-400字，第3段100-200字，第4段100-200字"""
+
+        messages = [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=prompt),
+        ]
+        response = await self.llm.ainvoke(messages)
+        speeches = self._split_speeches(response.content)
+        return speeches if len(speeches) >= 2 else [response.content]
+
+    @staticmethod
+    def _split_speeches(text: str) -> list[str]:
+        """按 '---NEXT---' 分隔符拆分自然语言发言"""
+        parts = [p.strip() for p in text.split("---NEXT---")]
+        return [p for p in parts if p]
 
     # ----------------------------------------------------------
     # 2. 法庭调查 — 主动追问关键事实
@@ -224,9 +285,13 @@ class JudgeSkill:
     ],
     "facts_established": ["本轮新认定的事实"],
     "legal_issues_remaining": ["仍需解决的法律问题"],
+    "evidence_needed": false,
+    "evidence_gap_description": "如果evidence_needed为true，描述缺失的证据及需要补充的内容；否则留空",
     "next_round_guidance": "对下一轮辩论的指引方向，要求双方重点辩论什么",
     "judge_comment": "法官对双方的本轮综合点评（面向当事人的正式表述）"
-}}"""
+}}
+
+注意：evidence_needed字段判断标准——仅当双方陈述中存在关键事实无法认定、核心证据完全缺失、导致无法作出裁判时设为true。一般性的证据薄弱或论证不足不应触发补证，应通过辩论过程自行厘清。"""
 
         messages = [
             SystemMessage(content=self.system_prompt),

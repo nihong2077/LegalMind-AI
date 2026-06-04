@@ -111,12 +111,14 @@ function cleanMarkdown(text: string): string {
 /** 判断节点是否为应该显示在聊天中的辩论发言节点 */
 function isDebateSpeechNode(node: string): boolean {
   if (!node) return false
+  // 支持 subnode 格式（如 judge_opening_0, judge_opening_1）
+  const baseNode = node.replace(/_\d+$/, '')
   const speechNodes = [
     'judge_opening', 'plaintiff_opening', 'defendant_opening',
     'court_investigation', 'plaintiff_rebuttal', 'defendant_rebuttal',
     'judge_comment', 'judge_verdict', 'judgment_report', 'plain_language',
   ]
-  return speechNodes.includes(node)
+  return speechNodes.includes(baseNode)
 }
 
 function getPhaseLabel(node: string, round: number): string {
@@ -161,15 +163,58 @@ function saveCourtCases(cases: SavedCourtCase[]) {
   localStorage.setItem(COURT_CASES_KEY, JSON.stringify(cases.slice(0, 50)))
 }
 
+/** 补证面板：证据不足时供用户补充证据 */
+function EvidenceSupplementPanel({ interruptReason, onSubmit }: {
+  interruptReason: string
+  onSubmit: (newEvidence: string) => void
+}) {
+  const [newEvidence, setNewEvidence] = useState('')
+
+  return (
+    <div className="border-t border-amber-300/40 bg-amber-50/50 flex-shrink-0">
+      {/* 中断原因提示 */}
+      <div className="px-4 pt-3 pb-2 flex items-start gap-2">
+        <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-xs font-medium text-amber-700">证据不足，需要补充</p>
+          <p className="text-[11px] text-amber-600/80 mt-0.5">{interruptReason}</p>
+        </div>
+      </div>
+      {/* 补证输入区 */}
+      <div className="px-4 pb-3 flex gap-2">
+        <textarea
+          value={newEvidence}
+          onChange={e => setNewEvidence(e.target.value)}
+          placeholder="请补充案件相关证据材料，如合同条款、转账记录、聊天截图描述等..."
+          rows={3}
+          className="flex-1 bg-white border border-amber-300/50 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-amber-400 transition-all resize-none"
+        />
+        <div className="flex flex-col justify-end gap-2">
+          <button
+            onClick={() => { if (newEvidence.trim()) { onSubmit(newEvidence.trim()); setNewEvidence('') } }}
+            disabled={!newEvidence.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            <Play size={12} /> 继续推演
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CourtPage() {
   const { authed } = useChatStore()
   const [showLoginModal, setShowLoginModal] = useState(false)
-  const [phase, setPhase] = useState<'input' | 'debating' | 'done'>('input')
+  const [phase, setPhase] = useState<'input' | 'debating' | 'done' | 'evidence_needed'>('input')
 
   // 案件输入
   const [caseTitle, setCaseTitle] = useState('')
   const [caseDescription, setCaseDescription] = useState('')
   const [evidenceSummary, setEvidenceSummary] = useState('')
+
+  // 补证状态：证据不足时保存中断原因
+  const [interruptReason, setInterruptReason] = useState('')
 
   // 辩论状态
   const [messages, setMessages] = useState<DebateMessage[]>([])
@@ -196,26 +241,45 @@ export default function CourtPage() {
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setSavedCases(loadCourtCases()) }, [])
+  useEffect(() => {
+    setSavedCases(loadCourtCases())
+    // 从案件记忆页面"继续"时，恢复上次保存的案件
+    const continueCaseId = localStorage.getItem('legalmind_continue_case')
+    if (continueCaseId) {
+      localStorage.removeItem('legalmind_continue_case')
+      const cases = loadCourtCases()
+      const found = cases.find(c => c.id === continueCaseId)
+      if (found) {
+        caseIdRef.current = found.id
+        loadSavedCase(found)
+      }
+    }
+  }, [])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const updateFlowStep = useCallback((nodeId: string, status: FlowStatus) => {
-    const stepId = NODE_TO_STEP[nodeId]
+    // 支持 subnode 格式（如 judge_opening_0 → judge_opening）
+    const baseNodeId = nodeId.replace(/_\d+$/, '')
+    const stepId = NODE_TO_STEP[baseNodeId] || NODE_TO_STEP[nodeId]
     if (!stepId) return
     setFlowSteps(prev => prev.map(step =>
       step.id === stepId ? { ...step, status, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) } : step
     ))
   }, [])
 
-  const saveCurrentCase = useCallback(() => {
+  // 稳定 ID：开始辩论时生成，完成后保存到同一个 ID
+  const caseIdRef = useRef('')
+
+  const saveCurrentCase = useCallback((isDone: boolean = false) => {
     if (!caseDescription.trim()) return
-    const id = Date.now().toString()
+    const id = caseIdRef.current || Date.now().toString()
+    if (!caseIdRef.current) caseIdRef.current = id
     const c: SavedCourtCase = {
       id,
       title: caseTitle || '未命名案件',
       description: caseDescription,
       evidenceSummary,
-      result: phase === 'done' ? {
+      result: isDone ? {
         messages: messages.map(m => ({ ...m, timestamp: m.timestamp.toISOString() })),
         verdict: '',
         judgmentReport: '',
@@ -224,15 +288,22 @@ export default function CourtPage() {
         kfe: {},
         structuredSummary: structuredReport,
       } : null,
-      createdAt: new Date().toISOString(),
+      createdAt: savedCases.find(sc => sc.id === id)?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    const updated = [c, ...savedCases]
+    // 更新或插入：同 ID 覆盖旧记录
+    const existing = savedCases.filter(sc => sc.id !== id)
+    const updated = [c, ...existing]
     setSavedCases(updated)
     saveCourtCases(updated)
-  }, [caseTitle, caseDescription, evidenceSummary, phase, messages, structuredReport, savedCases])
+  }, [caseTitle, caseDescription, evidenceSummary, messages, structuredReport, savedCases])
+
+  // 用 ref 保持最新 saveCurrentCase，避免 setTimeout 闭包捕获旧版本
+  const saveCurrentCaseRef = useRef(saveCurrentCase)
+  saveCurrentCaseRef.current = saveCurrentCase
 
   const loadSavedCase = (c: SavedCourtCase) => {
+    caseIdRef.current = c.id
     setCaseTitle(c.title)
     setCaseDescription(c.description)
     setEvidenceSummary(c.evidenceSummary)
@@ -254,11 +325,12 @@ export default function CourtPage() {
     setFlowSteps(INITIAL_FLOW_STEPS.map(s => ({ ...s })))
   }
 
-  const handleStartDebate = async () => {
+  const handleStartDebate = async (keepMessages = false, overrideEvidence?: string) => {
     if (!caseDescription.trim()) return
     if (!authed) { setError('请先登录'); return }
 
-    setMessages([])
+    // 补证恢复时保留已有消息，否则清空
+    if (!keepMessages) setMessages([])
     setError(null)
     setPhase('debating')
     setIsStreaming(true)
@@ -266,11 +338,19 @@ export default function CourtPage() {
     setCurrentRound(0)
     setCurrentPhaseLabel('')
     setConfidence(0)
-    setEvidences([])
-    setLawArticles([])
-    setKfeItems([])
-    setStructuredReport(null)
-    setCanSign('待评估')
+    if (!keepMessages) {
+      setEvidences([])
+      setLawArticles([])
+      setKfeItems([])
+      setStructuredReport(null)
+      setCanSign('待评估')
+    }
+
+    // 补证恢复时沿用已有 caseId，否则生成新的
+    if (!keepMessages) {
+      caseIdRef.current = Date.now().toString()
+    }
+    saveCurrentCase(false)
 
     const abortController = new AbortController()
     abortRef.current = abortController
@@ -283,7 +363,7 @@ export default function CourtPage() {
     try {
       for await (const event of debateStream({
         case_description: caseDescription,
-        evidence_summary: evidenceSummary,
+        evidence_summary: overrideEvidence ?? evidenceSummary,
         task_type: 'debate',
       }, abortController.signal)) {
 
@@ -356,10 +436,18 @@ export default function CourtPage() {
               content: cleanMarkdown(currentContent), node: currentNode, round: currentRoundNum, timestamp: new Date(),
             }])
           }
-          updateFlowStep(currentNode || 'finalize', 'done')
-          setFlowSteps(prev => prev.map(s => ({ ...s, status: 'done' as FlowStatus })))
 
           const done = event.data as DebateStreamDone & { legal_knowledge?: string; kfe?: Record<string, unknown> }
+
+          // 证据不足时：更新流程步骤到 check_evidence 为止，后续保持 pending
+          if (done.evidence_sufficient === false) {
+            updateFlowStep('extract_kfe', 'done')
+            updateFlowStep('check_evidence', 'done')
+          } else {
+            updateFlowStep(currentNode || 'finalize', 'done')
+            setFlowSteps(prev => prev.map(s => ({ ...s, status: 'done' as FlowStatus })))
+          }
+
           const summary = done.structured_summary
 
           if (summary) {
@@ -391,8 +479,23 @@ export default function CourtPage() {
             if (articles.length > 0) setLawArticles(articles)
           }
 
-          setPhase('done')
-          saveCurrentCase()  // 辩论完成后自动保存案件
+          // 证据不足时进入补证阶段，否则正常完成
+          if (done.evidence_sufficient === false) {
+            setInterruptReason(done.interrupt_reason || '证据不足，无法继续推演')
+            setPhase('evidence_needed')
+          } else {
+            setPhase('done')
+            // 延迟保存：让 React 先提交所有状态更新，确保 messages/structuredReport 是最新值
+            setTimeout(() => {
+              saveCurrentCaseRef.current(true)
+              // 同步到后端 Redis（已登录时）
+              if (authed) {
+                import('@/app/lib/api').then(({ createCase }) => {
+                  createCase(caseTitle || '未命名案件', caseDescription.slice(0, 200)).catch(() => {})
+                }).catch(() => {})
+              }
+            }, 0)
+          }
         } else if (event.type === 'error') {
           const err = event.data as { error: string; message: string }
           setError(err.message || '辩论服务暂时不可用')
@@ -415,7 +518,7 @@ export default function CourtPage() {
     setCaseTitle(''); setCaseDescription(''); setEvidenceSummary('')
     setMessages([])
     setFlowSteps(INITIAL_FLOW_STEPS.map(s => ({ ...s, status: 'pending' as FlowStatus, time: undefined })))
-    setCurrentRound(0); setCurrentPhaseLabel(''); setConfidence(0); setPhase('input'); setError(null)
+    setCurrentRound(0); setCurrentPhaseLabel(''); setConfidence(0); setPhase('input'); setError(null); setInterruptReason('')
     setEvidences([]); setLawArticles([]); setKfeItems([]); setStructuredReport(null); setCanSign('待评估')
   }
 
@@ -441,11 +544,11 @@ export default function CourtPage() {
     }
   }
 
-  const CAN_SIGN_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-    '可签': { bg: 'bg-green-50', text: 'text-green-600', label: '可签' },
-    '有条件可签': { bg: 'bg-yellow-50', text: 'text-yellow-600', label: '有条件可签' },
-    '不建议签': { bg: 'bg-red-50', text: 'text-red-600', label: '不建议签' },
-    '待评估': { bg: 'bg-gray-50', text: 'text-gray-500', label: '待评估' },
+  const CAN_SIGN_STYLE: Record<string, { bg: string; text: string; border: string; label: string }> = {
+    '可签': { bg: 'bg-green-50', text: 'text-green-600', border: 'border-green-600', label: '可签' },
+    '有条件可签': { bg: 'bg-yellow-50', text: 'text-yellow-600', border: 'border-yellow-600', label: '有条件可签' },
+    '不建议签': { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-600', label: '不建议签' },
+    '待评估': { bg: 'bg-gray-50', text: 'text-gray-500', border: 'border-gray-500', label: '待评估' },
   }
 
   return (
@@ -470,7 +573,7 @@ export default function CourtPage() {
           </div>
           <div className="flex items-center gap-3">
             {phase !== 'input' && canSign !== '待评估' && (
-              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${CAN_SIGN_STYLE[canSign].bg} ${CAN_SIGN_STYLE[canSign].text.replace('text-', 'border-')}`}>
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${CAN_SIGN_STYLE[canSign].bg} ${CAN_SIGN_STYLE[canSign].border}`}>
                 <div className={`w-2 h-2 rounded-full ${canSign === '可签' ? 'bg-green-400' : canSign === '不建议签' ? 'bg-red-400' : 'bg-yellow-400'}`} />
                 <span className="text-xs font-medium">{CAN_SIGN_STYLE[canSign].label}</span>
                 <span className="text-[10px] opacity-70 ml-1">置信度 {confidence}%</span>
@@ -558,7 +661,7 @@ export default function CourtPage() {
                       className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-400/40 transition-all resize-none" />
                   </div>
 
-                  <button onClick={handleStartDebate} disabled={!caseDescription.trim()}
+                  <button onClick={() => handleStartDebate()} disabled={!caseDescription.trim()}
                     className="w-full gold-btn py-3 flex items-center justify-center gap-2 text-base disabled:opacity-40">
                     <Play size={18} /> 开始庭审推演
                   </button>
@@ -614,12 +717,30 @@ export default function CourtPage() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                <div className="h-11 border-t border-gray-200 flex items-center justify-between px-4 flex-shrink-0 bg-white">
-                  <div className="flex items-center gap-2">
-                    {isStreaming && (<button onClick={handleStop} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-400/30 text-red-400 text-xs hover:bg-red-400/10"><StopCircle size={12} /> 停止推演</button>)}
-                    {phase === 'done' && !isStreaming && (<button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-500 text-xs hover:bg-blue-50"><RefreshCw size={12} /> 新案件</button>)}
+                {/* 底部操作栏：正常状态 */}
+                {phase !== 'evidence_needed' && (
+                  <div className="h-11 border-t border-gray-200 flex items-center justify-between px-4 flex-shrink-0 bg-white">
+                    <div className="flex items-center gap-2">
+                      {isStreaming && (<button onClick={handleStop} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-400/30 text-red-400 text-xs hover:bg-red-400/10"><StopCircle size={12} /> 停止推演</button>)}
+                      {phase === 'done' && !isStreaming && (<button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-500 text-xs hover:bg-blue-50"><RefreshCw size={12} /> 新案件</button>)}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* 补证面板：证据不足时显示 */}
+                {phase === 'evidence_needed' && (
+                  <EvidenceSupplementPanel
+                    interruptReason={interruptReason}
+                    onSubmit={(newEvidence) => {
+                      // 将新证据追加到已有证据摘要中，直接传入避免异步状态问题
+                      const combined = evidenceSummary
+                        ? `${evidenceSummary}\n\n【补充证据】\n${newEvidence}`
+                        : newEvidence
+                      setEvidenceSummary(combined)
+                      handleStartDebate(true, combined)
+                    }}
+                  />
+                )}
               </>
             )}
           </section>

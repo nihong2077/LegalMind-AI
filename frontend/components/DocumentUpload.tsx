@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
 import {
@@ -90,6 +90,45 @@ export default function DocumentUpload() {
   const [showHighOnly, setShowHighOnly] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const reviewIdRef = useRef('')
+  const hasSavedRef = useRef(false)  // 防止重复保存
+
+  // 审查完成后保存到案件记忆（仅在 reviewDone 首次变为 true 时执行）
+  useEffect(() => {
+    if (!reviewDone || !caseName || hasSavedRef.current) return
+    hasSavedRef.current = true
+    const id = reviewIdRef.current || Date.now().toString()
+    if (!reviewIdRef.current) reviewIdRef.current = id
+    const reviewCase = {
+      id,
+      type: 'contract_review',
+      title: caseName || '未命名合同',
+      description: `合同审查 - 风险等级: ${riskLevelLabel}，共 ${stats.total_clauses} 条条款，${stats.high_risk} 项高风险`,
+      riskLevel: riskLevelLabel,
+      canSign,
+      stats,
+      conclusion,
+      riskList,
+      revisionList,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    try {
+      const raw = localStorage.getItem('legalmind_contract_reviews')
+      const existing: typeof reviewCase[] = raw ? JSON.parse(raw) : []
+      const updated = [reviewCase, ...existing.filter(r => r.id !== id)]
+      localStorage.setItem('legalmind_contract_reviews', JSON.stringify(updated))
+    } catch { /* localStorage 不可用 */ }
+
+    // 同步到后端（已登录时）
+    if (authed) {
+      try {
+        import('@/app/lib/api').then(({ createCase }) => {
+          createCase(reviewCase.title, reviewCase.description).catch(() => {})
+        })
+      } catch { /* ignore */ }
+    }
+  }, [reviewDone, caseName, riskLevelLabel, canSign, stats, conclusion, riskList, revisionList, authed])
 
   // 是否已上传文件并开始审查
   const hasReviewData = reviewDone || isReviewing
@@ -197,6 +236,8 @@ export default function DocumentUpload() {
   const handleStop = () => { if (abortRef.current) { abortRef.current.abort(); setIsReviewing(false); setReviewDone(true) } }
 
   const handleReset = () => {
+    reviewIdRef.current = ''
+    hasSavedRef.current = false
     setFiles([]); setError(null); setIsReviewing(false); setReviewDone(false)
     setClauseTree([]); setClausesDisplay([]); setRiskList([]); setRevisionList([])
     setConclusion({}); setReportSections({}); setStats({ total_clauses: 0, high_risk: 0, medium_risk: 0, low_risk: 0, passed: 0, completion_rate: 0 })

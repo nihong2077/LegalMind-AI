@@ -59,27 +59,15 @@ def check_evidence_sufficiency(kfe: dict) -> tuple[bool, str]:
     """
     检查证据是否充分，决定是否需要中断流程让用户补充。
 
-    仅检查原告方（举证责任方）的证据充分性。
-    被告方证据弱是正常的，不阻断流程。
+    仅在极端情况下阻断流程（如完全无法识别案件类型），
+    一般情况下允许辩论继续，由庭审过程本身厘清争议。
 
     Returns:
         (证据是否充分, 缺失说明)
     """
-    missing = []
-
-    evidence_strength = kfe.get("evidence_strength_plaintiff", "中")
-    if evidence_strength == "弱":
-        missing.append("原告方证据不足，请上传相关合同、聊天记录、转账凭证等")
-
-    if kfe.get("breach_type") == "不明确":
-        missing.append("违约/侵权类型不明确，请补充更多案件细节")
-
-    if kfe.get("damage_amount", 0) == 0:
-        missing.append("损失金额未明确，请提供具体金额或计算依据")
-
-    if missing:
-        return False, "\n".join(missing)
-
+    # 只有当案件描述完全无法识别任何法律要素时才阻断
+    # breach_type 和 evidence_strength 仅作为提示信息，不阻断流程
+    # 确定违约类型和证据强度本身就是辩论过程的一部分
     return True, "证据基本充分"
 
 

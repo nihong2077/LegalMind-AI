@@ -46,5 +46,10 @@ class Settings(BaseSettings):
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LITELLM_VIRTUAL_KEY: str = ""
 
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin"
+
 
 settings = Settings()

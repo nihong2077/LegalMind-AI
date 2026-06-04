@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
-import { MessageSquare, FileText, BookOpen, TrendingUp, Plus, FolderOpen, Gavel } from 'lucide-react'
+import { MessageSquare, FileText, BookOpen, TrendingUp, FolderOpen, Gavel } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { getDashboardStats, getRecentCases, type DashboardStats, type CaseItem } from '@/app/lib/api'
@@ -31,10 +31,13 @@ export default function DashboardPage() {
     try {
       const courtRaw = localStorage.getItem('legalmind_court_cases')
       const chatRaw = localStorage.getItem('legalmind_chat_history')
+      const contractRaw = localStorage.getItem('legalmind_contract_reviews')
       const court: Array<{ id: string; title: string; createdAt: string }> = courtRaw ? JSON.parse(courtRaw) : []
       const chat: Array<{ id: string; title: string; createdAt: string }> = chatRaw ? JSON.parse(chatRaw) : []
+      const contract: Array<{ id: string; title: string; createdAt: string }> = contractRaw ? JSON.parse(contractRaw) : []
       return [...court.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') })),
-              ...chat.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') }))]
+              ...chat.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') })),
+              ...contract.map(c => ({ id: c.id, title: c.title, status: 'completed' as const, created_at: new Date(c.createdAt).toLocaleDateString('zh-CN') }))]
         .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 5)
     } catch { return [] }
   }

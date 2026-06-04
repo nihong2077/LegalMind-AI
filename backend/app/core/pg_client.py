@@ -11,7 +11,7 @@ from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, DateTime, Integer, String, Text, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .config import settings
@@ -52,6 +52,13 @@ ENGINES = {
     "law": law_engine,
 }
 
+
+
+
+# 三库 session factory
+judge_session_factory = async_sessionmaker(judge_engine, expire_on_commit=False)
+lawyer_session_factory = async_sessionmaker(lawyer_engine, expire_on_commit=False)
+law_session_factory = async_sessionmaker(law_engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     pass
@@ -269,7 +276,7 @@ async def search_judge_cases_by_vector(
     case_type: Optional[str] = None,
 ) -> list[dict]:
     """向量检索裁判文书"""
-    async with AsyncSession(judge_engine) as session:
+    async with judge_session_factory() as session:
         stmt = select(
             JudgeCase.id,
             JudgeCase.case_number,
@@ -310,7 +317,7 @@ async def search_sentencing_by_vector(
     top_k: int = 5,
 ) -> list[dict]:
     """向量检索量刑标准"""
-    async with AsyncSession(judge_engine) as session:
+    async with judge_session_factory() as session:
         stmt = select(
             SentencingGuideline.id,
             SentencingGuideline.crime_category,
@@ -350,7 +357,7 @@ async def search_defense_strategies_by_vector(
     case_type: Optional[str] = None,
 ) -> list[dict]:
     """向量检索辩护策略"""
-    async with AsyncSession(lawyer_engine) as session:
+    async with lawyer_session_factory() as session:
         stmt = select(
             DefenseStrategy.id,
             DefenseStrategy.strategy_name,
@@ -387,7 +394,7 @@ async def search_evidence_rules_by_vector(
     top_k: int = 5,
 ) -> list[dict]:
     """向量检索证据规则"""
-    async with AsyncSession(lawyer_engine) as session:
+    async with lawyer_session_factory() as session:
         stmt = select(
             EvidenceRule.id,
             EvidenceRule.rule_name,
@@ -421,7 +428,7 @@ async def search_contract_review_by_vector(
     contract_type: Optional[str] = None,
 ) -> list[dict]:
     """向量检索合同审查模板"""
-    async with AsyncSession(lawyer_engine) as session:
+    async with lawyer_session_factory() as session:
         stmt = select(
             ContractReviewTemplate.id,
             ContractReviewTemplate.contract_type,
@@ -465,7 +472,7 @@ async def search_law_by_vector(
     law_type: Optional[str] = None,
 ) -> list[dict]:
     """向量检索法律法规"""
-    async with AsyncSession(law_engine) as session:
+    async with law_session_factory() as session:
         stmt = select(
             LegalProvision.id,
             LegalProvision.law_name,
@@ -508,7 +515,7 @@ async def search_law_by_keyword(
     law_type: Optional[str] = None,
 ) -> list[dict]:
     """关键词全文检索法条"""
-    async with AsyncSession(law_engine) as session:
+    async with law_session_factory() as session:
         stmt = select(
             LegalProvision.id,
             LegalProvision.law_name,
@@ -547,7 +554,7 @@ async def search_interpretations_by_vector(
     top_k: int = 5,
 ) -> list[dict]:
     """向量检索司法解释"""
-    async with AsyncSession(law_engine) as session:
+    async with law_session_factory() as session:
         stmt = select(
             JudicialInterpretation.id,
             JudicialInterpretation.title,

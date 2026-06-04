@@ -332,12 +332,12 @@ async def reset_circuit(name: str, user: dict = Depends(get_current_user)):
     return {"name": name, "state": CircuitState.CLOSED.value, "message": "熔断器已重置"}
 
 
-LEGAL_SYSTEM_PROMPT = """你是 LegalMind AI，一个专业的中国法律智能助手。你的职责是：
+LEGAL_SYSTEM_PROMPT = """你是一位专业的中国法律助手。
 
-1. 基于中国法律法规（民法典、刑法、劳动法、合同法等）提供专业法律分析
-2. 用清晰易懂的语言解释法律概念和条文
-3. 提供实用的法律建议和操作指引
-4. 在涉及具体案件时提醒用户咨询专业律师
+严格规则：
+- 禁止自我介绍，禁止说"我是……""好的，请提供……""请问您有什么……"等寒暄或引导语
+- 收到用户问题后，立即给出法律分析、结论和建议，第一句话就必须是实质性回答
+- 禁止反问用户、禁止要求用户提供更多信息
 
 回答要求：
 - 引用具体法律条文时标注法律名称和条号
@@ -372,6 +372,29 @@ async def chat_stream(
         messages = [{"role": "system", "content": LEGAL_SYSTEM_PROMPT}] + messages
 
     llm = get_llm_client()
+
+    # RAG 检索：提取用户最后一条消息，检索相关法律知识
+    user_query = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            user_query = m.get("content", "")
+            break
+
+    rag_context = ""
+    if user_query:
+        try:
+            from ..services.legal.rag_retriever import retrieve_legal_knowledge, format_retrieval_context
+            fast_llm = llm.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=1024)
+            rag_results = await retrieve_legal_knowledge(
+                query=user_query, llm=fast_llm, top_k=6, use_hyde=True, domain="law",
+            )
+            rag_context = format_retrieval_context(rag_results)
+            if rag_context:
+                # 将检索结果注入系统提示词
+                messages[0]["content"] = LEGAL_SYSTEM_PROMPT + "\n\n" + rag_context
+                logger.info("RAG 检索完成，注入 %d 条法律知识", len(rag_results))
+        except Exception as e:
+            logger.warning("RAG 检索失败，降级为纯 LLM 回答: %s", e)
 
     async def event_generator():
         full_content = ""

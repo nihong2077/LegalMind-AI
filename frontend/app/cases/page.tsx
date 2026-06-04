@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Scale, Trash2, Search, FileText, Clock, Gavel,
-  ChevronRight, FolderOpen, Play, AlertCircle, Loader2, ArrowLeft
+  FolderOpen, Play, AlertCircle, FileCheck
 } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
@@ -59,15 +59,21 @@ function deleteChatHistory(id: string): ChatHistory[] {
   return histories
 }
 
-// 统一案件条目
+function loadContractReviews(): Array<{ id: string; title: string; description: string; createdAt: string }> {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem('legalmind_contract_reviews')
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
 interface UnifiedCase {
   id: string
-  type: 'court' | 'chat'
+  type: 'court' | 'chat' | 'contract'
   title: string
   description: string
   createdAt: string
   hasResult: boolean
-  raw: SavedCourtCase | ChatHistory
+  raw: SavedCourtCase | ChatHistory | Record<string, unknown>
 }
 
 export default function CasesPage() {
@@ -75,7 +81,7 @@ export default function CasesPage() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [cases, setCases] = useState<UnifiedCase[]>([])
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'court' | 'chat'>('all')
+  const [filter, setFilter] = useState<'all' | 'court' | 'chat' | 'contract'>('all')
   const [selectedCase, setSelectedCase] = useState<UnifiedCase | null>(null)
 
   useEffect(() => {
@@ -89,30 +95,44 @@ export default function CasesPage() {
       description: h.messages?.[0]?.content?.slice(0, 200) || '',
       createdAt: h.createdAt, hasResult: true, raw: h,
     }))
-    setCases([...court, ...chat].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)))
+    const contract = loadContractReviews().map(r => ({
+      id: r.id, type: 'contract' as const, title: r.title,
+      description: r.description?.slice(0, 200) || '',
+      createdAt: r.createdAt, hasResult: true, raw: r,
+    }))
+    setCases([...court, ...chat, ...contract].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)))
   }, [])
 
   const refresh = () => {
-    setCases(prev => {
-      const court = loadCourtCases().map(c => ({
-        id: c.id, type: 'court' as const, title: c.title,
-        description: c.description.slice(0, 200), createdAt: c.createdAt,
-        hasResult: !!c.result, raw: c,
-      }))
-      const chat = loadChatHistories().map(h => ({
-        id: h.id, type: 'chat' as const, title: h.title,
-        description: h.messages?.[0]?.content?.slice(0, 200) || '',
-        createdAt: h.createdAt, hasResult: true, raw: h,
-      }))
-      return [...court, ...chat].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
-    })
+    const court = loadCourtCases().map(c => ({
+      id: c.id, type: 'court' as const, title: c.title,
+      description: c.description.slice(0, 200), createdAt: c.createdAt,
+      hasResult: !!c.result, raw: c,
+    }))
+    const chat = loadChatHistories().map(h => ({
+      id: h.id, type: 'chat' as const, title: h.title,
+      description: h.messages?.[0]?.content?.slice(0, 200) || '',
+      createdAt: h.createdAt, hasResult: true, raw: h,
+    }))
+    const contract = loadContractReviews().map(r => ({
+      id: r.id, type: 'contract' as const, title: r.title,
+      description: r.description?.slice(0, 200) || '',
+      createdAt: r.createdAt, hasResult: true, raw: r,
+    }))
+    setCases([...court, ...chat, ...contract].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)))
   }
 
   const handleDelete = (c: UnifiedCase) => {
     if (c.type === 'court') {
       deleteCourtCase(c.id)
-    } else {
+    } else if (c.type === 'chat') {
       deleteChatHistory(c.id)
+    } else if (c.type === 'contract') {
+      const raw = localStorage.getItem('legalmind_contract_reviews')
+      if (raw) {
+        const existing = JSON.parse(raw)
+        localStorage.setItem('legalmind_contract_reviews', JSON.stringify(existing.filter((r: { id: string }) => r.id !== c.id)))
+      }
     }
     refresh()
     if (selectedCase?.id === c.id) setSelectedCase(null)
@@ -120,7 +140,11 @@ export default function CasesPage() {
 
   const handleContinue = (c: UnifiedCase) => {
     if (c.type === 'court') {
+      // 保存要恢复的案件 ID，court 页面会在挂载时读取
+      localStorage.setItem('legalmind_continue_case', c.id)
       router.push('/court')
+    } else if (c.type === 'contract') {
+      router.push('/documents')
     } else {
       router.push('/chat')
     }
@@ -153,10 +177,10 @@ export default function CasesPage() {
                 placeholder="搜索案件..." className="w-full bg-slate-50 border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-[11px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-300" />
             </div>
             <div className="flex gap-1 mt-2">
-              {(['all', 'court', 'chat'] as const).map(t => (
+              {(['all', 'court', 'chat', 'contract'] as const).map(t => (
                 <button key={t} onClick={() => setFilter(t)}
                   className={`flex-1 text-[10px] py-1 rounded-md transition-all ${filter === t ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:text-slate-600'}`}>
-                  {t === 'all' ? '全部' : t === 'court' ? '庭审' : '对话'}
+                  {t === 'all' ? '全部' : t === 'court' ? '庭审' : t === 'contract' ? '合同' : '对话'}
                 </button>
               ))}
             </div>
@@ -171,7 +195,7 @@ export default function CasesPage() {
                     className={`w-full text-left px-4 py-3 border-b border-gray-100 transition-colors hover:bg-slate-50
                       ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''}`}>
                     <div className="flex items-center gap-2 mb-1">
-                      {c.type === 'court' ? <Gavel size={12} className="text-blue-400" /> : <FileText size={12} className="text-green-400" />}
+                      {c.type === 'court' ? <Gavel size={12} className="text-blue-400" /> : c.type === 'contract' ? <FileCheck size={12} className="text-orange-400" /> : <FileText size={12} className="text-green-400" />}
                       <span className="text-[11px] font-medium text-slate-600 truncate">{c.title}</span>
                       {c.hasResult && <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />}
                     </div>
@@ -179,7 +203,7 @@ export default function CasesPage() {
                     <div className="flex items-center gap-3 mt-1.5 ml-5">
                       <span className="text-[9px] text-slate-300 flex items-center gap-1"><Clock size={8} />{new Date(c.createdAt).toLocaleDateString('zh-CN')}</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-400">
-                        {c.type === 'court' ? '模拟法庭' : '法律咨询'}
+                        {c.type === 'court' ? '模拟法庭' : c.type === 'contract' ? '合同审查' : '法律咨询'}
                       </span>
                     </div>
                   </motion.button>
@@ -203,13 +227,15 @@ export default function CasesPage() {
                 <div className="flex items-center gap-3">
                   {selectedCase.type === 'court'
                     ? <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Gavel size={20} className="text-blue-400" /></div>
+                    : selectedCase.type === 'contract'
+                    ? <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center"><FileCheck size={20} className="text-orange-400" /></div>
                     : <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center"><FileText size={20} className="text-green-400" /></div>
                   }
                   <div>
                     <h3 className="text-base font-semibold text-slate-800">{selectedCase.title}</h3>
                     <p className="text-[10px] text-slate-400">
                       创建于 {new Date(selectedCase.createdAt).toLocaleString('zh-CN')}
-                      &nbsp;·&nbsp;{selectedCase.type === 'court' ? '模拟法庭推演' : '法律咨询对话'}
+                      &nbsp;·&nbsp;{selectedCase.type === 'court' ? '模拟法庭推演' : selectedCase.type === 'contract' ? '合同审查' : '法律咨询对话'}
                     </p>
                   </div>
                 </div>
@@ -250,7 +276,7 @@ export default function CasesPage() {
                       <Scale size={12} className="text-green-400" /> 推演结果
                     </h4>
                     <p className="text-xs text-green-600">
-                      {selectedCase.type === 'court' ? '已完成模拟法庭推演，可查看完整辩论记录和分析报告' : '已完成法律咨询对话'}
+                      {selectedCase.type === 'court' ? '已完成模拟法庭推演，可查看完整辩论记录和分析报告' : selectedCase.type === 'contract' ? '已完成合同审查，可查看完整审查报告' : '已完成法律咨询对话'}
                     </p>
                   </div>
                 )}

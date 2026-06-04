@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import AsyncIterator, Optional
 
@@ -140,8 +141,6 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 2048,
     ) -> AsyncIterator[dict]:
-        import json
-
         payload = {
             "model": model,
             "messages": messages,
@@ -221,7 +220,6 @@ class LLMClient:
     async def _set_cache(self, key: str, value: dict) -> None:
         try:
             r = get_redis()
-            import json
             await r.setex(
                 f"{LITELLM_CACHE_PREFIX}{key}",
                 CACHE_TTL,

@@ -57,6 +57,7 @@ class DebateWorkflowState(TypedDict):
 
     converged: bool
     convergence_reason: str
+    evidence_needed: bool
 
     verdict: str
     judgment_report: str
@@ -71,7 +72,8 @@ class DebateWorkflowState(TypedDict):
 async def extract_kfe_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
     """节点1: 提取关键法律事实"""
     existing = state.get("kfe", {})
-    if existing and existing.get("breach_type") != "不明确":
+    # 补证后（evidence_sufficient 曾为 False）需要重新提取 KFE
+    if existing and existing.get("breach_type") != "不明确" and state.get("evidence_sufficient", True):
         logger.info("KFE 已预填，跳过提取")
         return {}
 
@@ -81,12 +83,20 @@ async def extract_kfe_node(state: DebateWorkflowState, llm: BaseChatModel) -> di
         evidence_summary=state.get("evidence_summary", ""),
         llm=llm,
     )
+    # 补证时合并已有 KFE，保留用户补充的信息
+    if existing:
+        merged = dict(existing)
+        merged.update(kfe)
+        return {"kfe": merged}
     return {"kfe": kfe}
 
 
 async def check_evidence_node(state: DebateWorkflowState, _llm: BaseChatModel) -> dict:
     """节点2: 检查证据充分性"""
-    sufficient, reason = check_evidence_sufficiency(state["kfe"])
+    kfe = state.get("kfe", {})
+    logger.info("check_evidence_node KFE: %s", kfe)
+    sufficient, reason = check_evidence_sufficiency(kfe)
+    logger.info("check_evidence_node result: sufficient=%s, reason=%s", sufficient, reason)
     return {
         "evidence_sufficient": sufficient,
         "interrupt_reason": reason if not sufficient else "",
@@ -107,16 +117,38 @@ async def retrieve_knowledge_node(state: DebateWorkflowState, llm: BaseChatModel
 
 
 async def judge_opening_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点4: 法官开庭，归纳争议焦点（增强版：注入 KFE + 法律知识）"""
+    """节点4: 法官开庭，归纳争议焦点（增强版：注入 KFE + 法律知识）
+    同时生成 JSON 版（存状态）+ 自然语言分节发言（前端多气泡展示）"""
     logger.info("法官开庭...")
     judge = JudgeSkill(llm)
-    opening = await judge.preside_opening(
+
+    # 1. JSON 版本：用于下游节点消费（focus_points 状态）
+    opening_json = await judge.preside_opening(
         plaintiff_claim=state["case_description"],
         defendant_response=state.get("evidence_summary", ""),
         kfe=state.get("kfe"),
         legal_knowledge=state.get("legal_knowledge", ""),
     )
-    return {"focus_points": opening, "messages": [AIMessage(content=f"【法官开庭】\n{opening}")]}
+
+    # 2. 自然语言分节发言：用于前端多气泡展示
+    speeches = await judge.preside_opening_speech(
+        plaintiff_claim=state["case_description"],
+        defendant_response=state.get("evidence_summary", ""),
+        kfe=state.get("kfe"),
+        legal_knowledge=state.get("legal_knowledge", ""),
+    )
+
+    # 为每条发言创建独立的 AIMessage，前端按 subnode 区分气泡
+    messages = []
+    for i, speech in enumerate(speeches):
+        # 使用 subnode 标记让前端区分不同气泡（judge_opening_0, judge_opening_1, ...）
+        # 前缀 "speech:" 让 SSE 处理器识别为独立消息
+        messages.append(AIMessage(content=f"【speech:{i}】{speech}"))
+
+    return {
+        "focus_points": opening_json,
+        "messages": messages,
+    }
 
 
 async def plaintiff_opening_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
@@ -246,7 +278,7 @@ async def defendant_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel
 
 
 async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
-    """节点10: 法官点评本轮辩论（增强版：传递历史点评 + 法律知识）"""
+    """节点10: 法官点评本轮辩论（增强版：传递历史点评 + 法律知识 + 证据充分性判断）"""
     round_num = state.get("current_round", 1)
     logger.info("法官点评 第%d轮...", round_num)
 
@@ -263,10 +295,29 @@ async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
     judge_comments = list(state.get("judge_comments", []))
     judge_comments.append(comment)
 
-    return {
+    # 解析法官点评中的 evidence_needed 标记
+    evidence_needed = False
+    interrupt_reason = ""
+    try:
+        import json as _json
+        parsed = _json.loads(comment) if isinstance(comment, str) else comment
+        if isinstance(parsed, dict):
+            evidence_needed = parsed.get("evidence_needed", False)
+            interrupt_reason = parsed.get("evidence_gap_description", "")
+    except (ValueError, TypeError):
+        pass
+
+    result = {
         "judge_comments": judge_comments,
         "messages": [AIMessage(content=f"【法官点评 第{round_num}轮】\n{comment}")],
     }
+
+    if evidence_needed and interrupt_reason:
+        result["evidence_needed"] = True
+        result["interrupt_reason"] = interrupt_reason
+        logger.info("法官判定证据不足，触发补证: %s", interrupt_reason)
+
+    return result
 
 
 async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel) -> dict:
@@ -288,8 +339,8 @@ async def convergence_check_node(state: DebateWorkflowState, _llm: BaseChatModel
         defendant_args = state.get("defendant_args", [])
         if plaintiff_args and defendant_args:
             # extract_kfe 是 async 函数，需要 await
-            plaintiff_kfe = await extract_kfe(" ".join(str(a) for a in plaintiff_args[-2:]))
-            defendant_kfe = await extract_kfe(" ".join(str(a) for a in defendant_args[-2:]))
+            plaintiff_kfe = await extract_kfe(" ".join(str(a) for a in plaintiff_args[-2:]), llm=_llm)
+            defendant_kfe = await extract_kfe(" ".join(str(a) for a in defendant_args[-2:]), llm=_llm)
             comparison = compare_kfe(plaintiff_kfe, defendant_kfe)
         else:
             comparison = compare_kfe(kfe, kfe)
@@ -483,8 +534,11 @@ def route_after_evidence(state: DebateWorkflowState) -> Literal["retrieve_knowle
     return "__end__"
 
 
-def route_after_convergence(state: DebateWorkflowState) -> Literal["plaintiff_rebuttal", "judge_verdict"]:
-    """收敛判定后的路由"""
+def route_after_convergence(state: DebateWorkflowState) -> Literal["plaintiff_rebuttal", "judge_verdict", "__end__"]:
+    """收敛判定后的路由：补证优先，然后看是否收敛"""
+    # 法官判定证据不足，中断流程让用户补证
+    if state.get("evidence_needed", False):
+        return "__end__"
     if state.get("converged", False):
         return "judge_verdict"
     return "plaintiff_rebuttal"
@@ -599,6 +653,7 @@ def build_debate_workflow(
     graph.add_conditional_edges("convergence_check", route_after_convergence, {
         "plaintiff_rebuttal": "plaintiff_rebuttal",
         "judge_verdict": "judge_verdict",
+        "__end__": END,
     })
 
     graph.add_conditional_edges("judge_verdict", route_after_verdict, {
