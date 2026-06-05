@@ -201,13 +201,13 @@ async def check_rate_limit(request: Request, user: dict = Depends(get_current_us
 
 
 @router.post("/auth/token")
-async def login(username: str = Query(...), password: str = Query(...)):
-    if username != "admin" or password != "admin":
+async def login(request: LoginRequest):
+    if request.username != "admin" or request.password != "admin":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
-    token = create_access_token(data={"sub": username})
+    token = create_access_token(data={"sub": request.username})
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -349,9 +349,14 @@ LEGAL_SYSTEM_PROMPT = """你是一位专业的中国法律助手。
 
 class ChatRequest(BaseModel):
     messages: list[dict]
-    model: str = "gemma4-9b"
+    model: str = "deepseek-flash"
     temperature: float = 0.7
     max_tokens: int = 2048
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 @router.post("/chat/stream")
