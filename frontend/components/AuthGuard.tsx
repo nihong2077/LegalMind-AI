@@ -31,10 +31,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
+      <div className="h-screen flex items-center justify-center bg-navy-950">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={32} className="animate-spin text-blue-600" />
-          <p className="text-sm text-slate-500">验证身份中...</p>
+          <Loader2 size={32} className="animate-spin text-gold-400" />
+          <p className="text-sm text-slate-400 font-body">验证身份中...</p>
         </div>
       </div>
     )
@@ -46,10 +46,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!authed) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
+      <div className="h-screen flex items-center justify-center bg-navy-950">
         <div className="flex flex-col items-center gap-4">
-          <Shield size={32} className="text-slate-300" />
-          <p className="text-sm text-slate-500">请先登录</p>
+          <Shield size={32} className="text-gold-400/30" />
+          <p className="text-sm text-slate-400 font-body">请先登录</p>
         </div>
       </div>
     )

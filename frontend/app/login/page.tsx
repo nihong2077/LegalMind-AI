@@ -61,58 +61,69 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-850 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Decorative background orbs */}
+      <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-gold-500/10 to-navy-700/20 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] right-[-8%] w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-navy-600/15 to-gold-400/8 blur-[140px] pointer-events-none" />
+      <div className="absolute top-[40%] right-[15%] w-[300px] h-[300px] rounded-full bg-gradient-to-br from-gold-300/5 to-transparent blur-[100px] pointer-events-none animate-aura-pulse" />
+
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md"
+        initial={{ opacity: 0, y: 24, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
+        className="w-full max-w-md relative z-10"
       >
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center mb-4 shadow-lg shadow-blue-600/20">
-            <Scale size={28} className="text-white" />
+        <motion.div
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+          className="flex flex-col items-center mb-8"
+        >
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-500 flex items-center justify-center mb-4 shadow-lg shadow-gold-500/20">
+            <Scale size={28} className="text-navy-900" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">LegalMind AI</h1>
-          <p className="text-sm text-slate-500 mt-1">智能司法协作平台</p>
-        </div>
+          <h1 className="text-3xl font-display text-gold-300 tracking-wide">LegalMind AI</h1>
+          <p className="text-sm text-navy-300/60 mt-1.5 font-body">智能司法协作平台</p>
+        </motion.div>
 
-        {/* 登录/注册卡片 */}
-        <div className="border border-gray-200 rounded-2xl bg-white shadow-lg shadow-gray-200/50 p-8">
-          <h2 className="text-lg font-semibold text-slate-800 mb-1">{isRegister ? '注册' : '登录'}</h2>
-          <p className="text-xs text-slate-500 mb-6">{isRegister ? '创建您的账号' : '使用您的账号登录系统'}</p>
+        {/* Login / Register Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.25 }}
+          className="glass-card-static p-8"
+        >
+          <h2 className="text-lg font-display text-slate-100 mb-1">{isRegister ? '注册' : '登录'}</h2>
+          <p className="text-xs text-navy-300/50 mb-6 font-body">{isRegister ? '创建您的账号' : '使用您的账号登录系统'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs text-slate-600 mb-1.5 block">用户名</label>
+              <label className="text-xs text-navy-200/70 mb-1.5 block font-body">用户名</label>
               <input
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 placeholder="请输入用户名"
-                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm text-slate-800
-                         placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
-                         transition-all"
+                className="input-field"
                 autoFocus
               />
             </div>
 
             <div>
-              <label className="text-xs text-slate-600 mb-1.5 block">密码</label>
+              <label className="text-xs text-navy-200/70 mb-1.5 block font-body">密码</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="请输入密码"
-                  className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 pr-10 text-sm text-slate-800
-                           placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
-                           transition-all"
+                  className="input-field pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-300/40 hover:text-gold-300 transition-colors duration-300"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -120,53 +131,58 @@ export default function LoginPage() {
             </div>
 
             {isRegister && (
-              <div>
-                <label className="text-xs text-slate-600 mb-1.5 block">确认密码</label>
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <label className="text-xs text-navy-200/70 mb-1.5 block font-body">确认密码</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   placeholder="请再次输入密码"
-                  className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm text-slate-800
-                           placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
-                           transition-all"
+                  className="input-field"
                 />
-              </div>
+              </motion.div>
             )}
 
             {error && (
-              <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 backdrop-blur-sm"
+              >
                 {error}
-              </div>
+              </motion.div>
             )}
 
             <button
               type="submit"
               disabled={!username.trim() || !password.trim() || loading || (isRegister && !confirmPassword.trim())}
-              className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium
-                       hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed
-                       flex items-center justify-center gap-2 transition-colors"
+              className="gold-btn w-full flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}
               {loading ? (isRegister ? '注册中...' : '登录中...') : (isRegister ? '注册' : '登录')}
             </button>
           </form>
 
-          <div className="mt-4 text-center">
+          <div className="mt-5 text-center">
             <button
               onClick={() => { setIsRegister(!isRegister); setError('') }}
-              className="text-xs text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+              className="text-xs text-gold-300/70 hover:text-gold-300 transition-colors duration-300"
             >
               {isRegister ? '已有账号？去登录' : '没有账号？立即注册'}
             </button>
           </div>
 
           {!isRegister && (
-            <p className="text-[10px] text-slate-400 text-center mt-4">
+            <p className="text-[10px] text-navy-300/30 text-center mt-4 font-body">
               默认账号：admin / admin
             </p>
           )}
-        </div>
+        </motion.div>
       </motion.div>
     </div>
   )

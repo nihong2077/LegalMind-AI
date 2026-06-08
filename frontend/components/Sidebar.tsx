@@ -29,46 +29,70 @@ export default function Sidebar({ onLoginClick }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] h-screen bg-[#1e3a5f] flex flex-col border-r border-white/10">
-      <Link href="/" className="p-5 flex items-center gap-3 border-b border-white/10 hover:bg-white/5 transition-colors">
-        <div className="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-          <Shield size={18} className="text-white" />
+    <aside
+      className="w-[220px] h-screen flex flex-col font-body border-r"
+      style={{
+        background: 'linear-gradient(180deg, #0a1628 0%, #0f1f3d 50%, #0a1628 100%)',
+        borderRightColor: 'rgba(59, 125, 216, 0.08)',
+      }}
+    >
+      {/* Logo */}
+      <Link
+        href="/"
+        className="p-5 flex items-center gap-3 border-b transition-colors duration-300 hover:bg-white/[0.03]"
+        style={{ borderBottomColor: 'rgba(59, 125, 216, 0.08)' }}
+      >
+        <div
+          className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #c9a84c 0%, #f0d78c 50%, #c9a84c 100%)',
+          }}
+        >
+          <Scale size={18} className="text-navy-900" />
         </div>
         <div>
-          <h1 className="text-base font-bold text-white leading-tight">智法 AI</h1>
-          <p className="text-[10px] text-blue-200/60 leading-tight">智能法援助手</p>
+          <h1 className="text-base font-bold leading-tight text-gold-300">智法 AI</h1>
+          <p className="text-[10px] leading-tight text-white/30">智能法援助手</p>
         </div>
       </Link>
 
-      <nav className="flex-1 p-3 space-y-1">
+      {/* Navigation */}
+      <nav className="flex-1 p-3 space-y-0.5">
         {navItems.map(({ name, icon: Icon, href }) => {
           const isActive = href === '/' ? pathname === '/' : pathname === href || pathname?.startsWith(href + '/')
           return (
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm ${
+              className={
                 isActive
-                  ? 'bg-white/15 text-white font-medium border border-white/10'
-                  : 'text-white/70 hover:text-white hover:bg-white/10'
-              }`}
+                  ? 'sidebar-link-active flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gold-300 border-l-2 border-gold-300 bg-gold-300/[0.06] transition-all duration-300'
+                  : 'sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm text-white/50 border-l-2 border-transparent hover:text-white/90 hover:bg-white/[0.04] transition-all duration-300'
+              }
             >
-              <Icon size={18} className="flex-shrink-0" />
+              <Icon size={17} className={`flex-shrink-0 ${isActive ? 'text-gold-300' : ''}`} />
               <span>{name}</span>
             </Link>
           )
         })}
       </nav>
 
-      <div className="p-4 border-t border-white/10">
+      {/* Bottom: Login / Logout */}
+      <div className="p-4 border-t" style={{ borderTopColor: 'rgba(59, 125, 216, 0.08)' }}>
         {authed ? (
-          <button onClick={handleLogout} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-red-300 transition-colors">
-            <LogOut size={14} />
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-white/40 hover:text-red-400 hover:bg-red-400/[0.06] transition-all duration-300"
+          >
+            <LogOut size={15} />
             <span className="text-xs">退出登录</span>
           </button>
         ) : (
-          <button onClick={onLoginClick} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-white transition-colors">
-            <LogIn size={14} />
+          <button
+            onClick={onLoginClick}
+            className="flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-white/40 hover:text-gold-300 hover:bg-gold-300/[0.06] transition-all duration-300"
+          >
+            <LogIn size={15} />
             <span className="text-xs">登录</span>
           </button>
         )}

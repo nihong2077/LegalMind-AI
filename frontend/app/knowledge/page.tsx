@@ -19,9 +19,9 @@ import { useChatStore } from '@/store/useChatStore'
 /* ========== 常量配置 ========== */
 
 const DOMAIN_TABS = [
-  { key: 'law', label: '法条库', icon: Scale, color: 'text-blue-400', bg: 'bg-blue-50', border: 'border-blue-200' },
-  { key: 'judge', label: '法官库', icon: BookOpen, color: 'text-emerald-400', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  { key: 'lawyer', label: '律师库', icon: FileText, color: 'text-orange-400', bg: 'bg-orange-50', border: 'border-orange-200' },
+  { key: 'law', label: '法条库', icon: Scale, color: 'text-gold-300', bg: 'bg-gold-400/10', border: 'border-gold-400/20' },
+  { key: 'judge', label: '法官库', icon: BookOpen, color: 'text-gold-300', bg: 'bg-gold-400/10', border: 'border-gold-400/20' },
+  { key: 'lawyer', label: '律师库', icon: FileText, color: 'text-gold-300', bg: 'bg-gold-400/10', border: 'border-gold-400/20' },
 ]
 
 const LAW_CATEGORIES = [
@@ -85,7 +85,7 @@ function DetailModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       >
         <motion.div
@@ -94,31 +94,33 @@ function DetailModal({
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ duration: 0.2 }}
           className="w-full max-w-2xl max-h-[85vh] mx-4 rounded-2xl overflow-hidden"
-          style={{ background: 'rgba(255, 255, 255, 0.98)', border: '1px solid #e2e8f0' }}
+          style={{
+            background: 'linear-gradient(135deg, rgba(20, 40, 82, 0.95) 0%, rgba(11, 21, 41, 0.98) 100%)',
+            border: '1px solid rgba(212, 160, 23, 0.15)',
+            backdropFilter: 'blur(20px)',
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* 模态框头部 */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-navy-700/30">
             <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                domain === 'law' ? 'bg-blue-50' : domain === 'judge' ? 'bg-emerald-50' : 'bg-orange-50'
-              }`}>
-                {domain === 'law' ? <Scale size={15} className="text-blue-400" /> :
-                 domain === 'judge' ? <Gavel size={15} className="text-emerald-400" /> :
-                 <Shield size={15} className="text-orange-400" />}
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-gold-400/10`}>
+                {domain === 'law' ? <Scale size={15} className="text-gold-300" /> :
+                 domain === 'judge' ? <Gavel size={15} className="text-gold-300" /> :
+                 <Shield size={15} className="text-gold-300" />}
               </div>
-              <h2 className="text-sm font-semibold text-slate-800 truncate">
+              <h2 className="text-sm font-semibold text-slate-50 font-display truncate">
                 {fields.title || '详情'}
               </h2>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={handleCopy}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-slate-400 text-[10px] hover:bg-slate-50 transition-all">
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-navy-700/30 text-slate-400 text-[10px] hover:bg-navy-800/50 transition-all">
                 {copied ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
                 {copied ? '已复制' : '复制'}
               </button>
               <button onClick={onClose}
-                className="p-1.5 rounded-lg border border-gray-200 text-slate-400 hover:bg-slate-50 transition-all">
+                className="p-1.5 rounded-lg border border-navy-700/30 text-slate-400 hover:bg-navy-800/50 transition-all">
                 <X size={13} />
               </button>
             </div>
@@ -130,10 +132,10 @@ function DetailModal({
             <div className="flex flex-wrap gap-2">
               {fields.tags.map((tag, i) => (
                 <span key={i} className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  tag.type === 'primary' ? 'bg-blue-400/10 text-blue-400' :
+                  tag.type === 'primary' ? 'bg-gold-400/10 text-gold-300' :
                   tag.type === 'success' ? 'bg-green-400/10 text-green-400' :
                   tag.type === 'warning' ? 'bg-amber-400/10 text-amber-400' :
-                  'bg-slate-50 text-slate-500'
+                  'bg-navy-800/50 text-slate-400'
                 }`}>{tag.label}</span>
               ))}
             </div>
@@ -142,9 +144,9 @@ function DetailModal({
             {fields.meta.length > 0 && (
               <div className="grid grid-cols-2 gap-3">
                 {fields.meta.map((m, i) => (
-                  <div key={i} className="rounded-lg bg-slate-50 p-2.5">
+                  <div key={i} className="rounded-lg bg-navy-800/50 p-2.5">
                     <div className="text-[9px] text-slate-400 mb-0.5">{m.label}</div>
-                    <div className="text-[11px] text-slate-600 truncate">{m.value || '--'}</div>
+                    <div className="text-[11px] text-slate-300 truncate">{m.value || '--'}</div>
                   </div>
                 ))}
               </div>
@@ -153,26 +155,26 @@ function DetailModal({
             {/* 正文内容 */}
             {fields.content && (
               <div>
-                <h4 className="text-[10px] font-semibold text-slate-500 mb-2 uppercase tracking-wider">
+                <h4 className="text-[10px] font-semibold text-slate-400 mb-2 uppercase tracking-wider">
                   {domain === 'law' ? '法条内容' : domain === 'judge' ? '裁判详情' : '策略内容'}
                 </h4>
-                <div className="rounded-xl bg-slate-50 border border-gray-200 p-4">
-                  <p className="text-[11px] text-slate-600 leading-[1.8] whitespace-pre-wrap">{fields.content}</p>
+                <div className="rounded-xl bg-navy-800/50 border border-navy-700/30 p-4">
+                  <p className="text-[11px] text-slate-300 leading-[1.8] whitespace-pre-wrap">{fields.content}</p>
                 </div>
               </div>
             )}
 
             {/* 匹配分数（搜索结果） */}
             {'score' in item && (item as SearchResultItem).score > 0 && (
-              <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+              <div className="flex items-center gap-2 pt-2 border-t border-navy-700/30">
                 <span className="text-[10px] text-slate-400">语义匹配度</span>
-                <div className="flex-1 h-1.5 rounded-full bg-slate-50 overflow-hidden">
+                <div className="flex-1 h-1.5 rounded-full bg-navy-800/50 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400"
+                    className="h-full rounded-full bg-gradient-to-r from-gold-400 to-gold-300"
                     style={{ width: `${Math.min(100, (item as SearchResultItem).score * 100)}%` }}
                   />
                 </div>
-                <span className="text-[10px] text-emerald-400 font-medium">
+                <span className="text-[10px] text-gold-300 font-medium">
                   {((item as SearchResultItem).score * 100).toFixed(1)}%
                 </span>
               </div>
@@ -315,19 +317,19 @@ export default function KnowledgePage() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar onLoginClick={() => setShowLoginModal(true)} />
 
-      <main className="flex-1 flex flex-col bg-white overflow-hidden">
+      <main className="flex-1 flex flex-col bg-navy-950 overflow-hidden">
         {/* 顶部标题栏 */}
-        <header className="h-14 border-b border-gray-200 flex items-center justify-between px-6 bg-white backdrop-blur-sm flex-shrink-0 z-10">
+        <header className="h-14 border-b border-navy-700/30 flex items-center justify-between px-6 bg-navy-950 backdrop-blur-sm flex-shrink-0 z-10">
           <div className="flex items-center gap-3">
-            <Database size={20} className="text-blue-400" />
-            <h1 className="text-base font-semibold text-slate-800">法律知识库</h1>
+            <Database size={20} className="text-gold-400" />
+            <h1 className="text-base font-semibold text-slate-50 font-display">法律知识库</h1>
             <span className="text-[10px] text-slate-400">|</span>
-            <span className="text-xs text-slate-400">检索法律法规 · 判例文书 · 辩护策略</span>
+            <span className="text-xs text-slate-400 font-body">检索法律法规 · 判例文书 · 辩护策略</span>
           </div>
           <div className="flex items-center gap-3">
             {!searchMode && (
               <button onClick={fetchList} disabled={loading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-slate-600 text-xs hover:bg-slate-50 transition-all">
+                className="gold-btn-outline flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs">
                 <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> 刷新
               </button>
             )}
@@ -338,21 +340,21 @@ export default function KnowledgePage() {
         <div className="flex-1 flex overflow-hidden">
 
           {/* 左侧分类面板 */}
-          <aside className="w-52 border-r border-gray-200 flex-shrink-0 overflow-y-auto bg-slate-50">
+          <aside className="w-52 border-r border-navy-700/30 flex-shrink-0 overflow-y-auto bg-navy-900/50">
             <div className="p-4 space-y-4">
               {/* 域切换 */}
               <div>
-                <h4 className="text-[11px] font-semibold text-slate-600 mb-2.5">知识领域</h4>
+                <h4 className="text-[11px] font-semibold text-slate-300 mb-2.5 font-body">知识领域</h4>
                 <div className="space-y-1">
                   {DOMAIN_TABS.map(tab => {
                     const IconComp = tab.icon; const isActive = activeDomain === tab.key
                     return (
                       <button key={tab.key} onClick={() => handleDomainChange(tab.key)}
                         className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all ${
-                          isActive ? `${tab.bg} border ${tab.border} ${tab.color} font-medium` : 'hover:bg-slate-50 text-slate-500'
+                          isActive ? `bg-gold-400/10 border border-gold-400/20 text-gold-300 font-medium` : 'hover:bg-navy-800/50 text-slate-400'
                         }`}>
                         <IconComp size={14} />
-                        <span className="text-xs">{tab.label}</span>
+                        <span className="text-xs font-body">{tab.label}</span>
                       </button>
                     )
                   })}
@@ -361,17 +363,17 @@ export default function KnowledgePage() {
 
               {/* 分类筛选 */}
               {!searchMode && (
-                <div className="pt-3 border-t border-gray-200">
-                  <h4 className="text-[11px] font-semibold text-slate-600 mb-2.5">分类筛选</h4>
+                <div className="pt-3 border-t border-navy-700/30">
+                  <h4 className="text-[11px] font-semibold text-slate-300 mb-2.5 font-body">分类筛选</h4>
                   <div className="space-y-0.5">
                     {categories.map(cat => {
                       const isActive = activeCategory === cat.key
                       return (
                         <button key={cat.key} onClick={() => { setActiveCategory(cat.key); setPage(1) }}
                           className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
-                            isActive ? 'bg-blue-50 text-blue-400 font-medium' : 'text-slate-500 hover:bg-slate-50'
+                            isActive ? 'bg-gold-400/10 text-gold-300 font-medium' : 'text-slate-400 hover:bg-navy-800/50'
                           }`}>
-                          <span className="text-[11px] flex-1 truncate">{cat.label}</span>
+                          <span className="text-[11px] flex-1 truncate font-body">{cat.label}</span>
                           {isActive && <CheckCircle2 size={11} />}
                         </button>
                       )
@@ -381,16 +383,16 @@ export default function KnowledgePage() {
               )}
 
               {/* 统计信息 */}
-              <div className="pt-3 border-t border-gray-200 space-y-2">
-                <h4 className="text-[11px] font-semibold text-slate-600">数据概览</h4>
+              <div className="pt-3 border-t border-navy-700/30 space-y-2">
+                <h4 className="text-[11px] font-semibold text-slate-300 font-body">数据概览</h4>
                 <div className="grid grid-cols-2 gap-1.5 text-center">
-                  <div className="rounded-lg bg-blue-50 p-2">
-                    <div className="text-sm font-bold text-blue-400">{total.toLocaleString()}</div>
-                    <div className="text-[9px] text-slate-400">总记录数</div>
+                  <div className="rounded-lg bg-navy-800/50 p-2">
+                    <div className="text-sm font-bold text-gold-300 font-display">{total.toLocaleString()}</div>
+                    <div className="text-[9px] text-slate-400 font-body">总记录数</div>
                   </div>
-                  <div className="rounded-lg bg-emerald-50 p-2">
-                    <div className="text-sm font-bold text-emerald-400">{categories.length - 1}</div>
-                    <div className="text-[9px] text-slate-400">分类数</div>
+                  <div className="rounded-lg bg-navy-800/50 p-2">
+                    <div className="text-sm font-bold text-gold-300 font-display">{categories.length - 1}</div>
+                    <div className="text-[9px] text-slate-400 font-body">分类数</div>
                   </div>
                 </div>
               </div>
@@ -402,18 +404,15 @@ export default function KnowledgePage() {
             {/* 搜索栏 */}
             <div className="p-4 pb-2 flex-shrink-0">
               <div className="relative max-w-2xl mx-auto">
-                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300" />
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder={`智能检索${currentTab.label}...`}
                   disabled={!authed || loading}
-                  className="w-full pl-10 pr-24 py-2.5 rounded-xl bg-slate-50 border border-gray-200
-                           text-xs text-slate-700 placeholder:text-slate-400
-                           focus:outline-none focus:border-blue-400/35 focus:ring-1 focus:ring-blue-400/10 transition-all
-                           disabled:opacity-40" />
+                  className="input-field pl-10 pr-24 py-2.5 text-xs disabled:opacity-40" />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                   {searchMode && (
-                    <button onClick={handleClearSearch} className="px-2 py-1 text-[10px] text-slate-500 hover:text-red-400 transition-colors">清除</button>
+                    <button onClick={handleClearSearch} className="px-2 py-1 text-[10px] text-slate-400 hover:text-red-400 transition-colors">清除</button>
                   )}
                   <button onClick={() => handleSearch()} disabled={!searchQuery.trim() || !authed || loading}
                     className="gold-btn-sm text-[10px] px-3 py-1 disabled:opacity-40">搜索</button>
@@ -423,11 +422,11 @@ export default function KnowledgePage() {
               {/* 热门搜索 */}
               {!searchMode && (
                 <div className="flex items-center gap-2 mt-2.5 max-w-2xl mx-auto flex-wrap">
-                  <Zap size={11} className="text-amber-400 flex-shrink-0" />
-                  <span className="text-[10px] text-slate-400 flex-shrink-0">热门：</span>
+                  <Zap size={11} className="text-gold-300 flex-shrink-0" />
+                  <span className="text-[10px] text-slate-400 flex-shrink-0 font-body">热门：</span>
                   {HOT_SEARCHES.map((kw, i) => (
                     <button key={i} onClick={() => { setSearchQuery(kw); handleSearch(kw) }}
-                      className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 text-slate-400 hover:text-blue-400 hover:border-blue-200 transition-all">
+                      className="text-[10px] px-2 py-0.5 rounded-full border border-navy-700/30 text-slate-400 hover:text-gold-300 hover:border-gold-400/30 transition-all font-body">
                       {kw}
                     </button>
                   ))}
@@ -436,11 +435,11 @@ export default function KnowledgePage() {
 
               {/* 结果计数 + 筛选切换 */}
               <div className="flex items-center justify-between mt-3 max-w-2xl mx-auto">
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-400 font-body">
                   {searchMode ? `语义搜索到 ${total} 条结果` : `共 ${total.toLocaleString()} 条记录`}
                 </span>
                 <button onClick={() => setShowFilter(!showFilter)}
-                  className={`flex items-center gap-1 text-[10px] transition-all ${showFilter ? 'text-blue-400' : 'text-slate-400 hover:text-slate-400'}`}>
+                  className={`flex items-center gap-1 text-[10px] transition-all font-body ${showFilter ? 'text-gold-300' : 'text-slate-400 hover:text-slate-400'}`}>
                   <Filter size={10} /> 筛选
                 </button>
               </div>
@@ -453,10 +452,10 @@ export default function KnowledgePage() {
                     <div className="flex flex-wrap gap-1.5 pt-2 pb-1">
                       {categories.map(cat => (
                         <button key={cat.key} onClick={() => { setActiveCategory(cat.key); setPage(1) }}
-                          className={`text-[10px] px-2.5 py-1 rounded-full border transition-all ${
+                          className={`text-[10px] px-2.5 py-1 rounded-full border transition-all font-body ${
                             activeCategory === cat.key
-                              ? 'border-blue-400/30 bg-blue-400/10 text-blue-400'
-                              : 'border-gray-200 text-slate-400 hover:border-gray-200'
+                              ? 'border-gold-400/30 bg-gold-400/10 text-gold-300'
+                              : 'border-navy-700/30 text-slate-400 hover:border-navy-700/50'
                           }`}>
                           {cat.label}
                         </button>
@@ -470,20 +469,20 @@ export default function KnowledgePage() {
             {/* 结果列表 */}
             <div className="flex-1 overflow-y-auto px-4 pb-4">
               {error && (
-                <div className="max-w-2xl mx-auto mb-3 p-3 rounded-lg bg-red-400/10 border border-red-400/20 text-red-400 text-[10px]">{error}</div>
+                <div className="max-w-2xl mx-auto mb-3 p-3 rounded-lg bg-red-400/10 border border-red-400/20 text-red-400 text-[10px] font-body">{error}</div>
               )}
 
               {loading && displayItems.length === 0 ? (
                 <div className="flex items-center justify-center py-24">
-                  <Loader2 size={22} className="animate-spin text-blue-400" />
-                  <span className="text-xs text-slate-400 ml-3">加载中...</span>
+                  <Loader2 size={22} className="animate-spin text-gold-400" />
+                  <span className="text-xs text-slate-400 ml-3 font-body">加载中...</span>
                 </div>
               ) : (
                 <AnimatePresence>
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl mx-auto space-y-2.5">
                     {displayItems.map(data => (
                       <motion.div key={data.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                        className="glass-card-static p-4 group cursor-pointer hover:border-gray-200 transition-all"
+                        className="glass-card-static p-4 group cursor-pointer hover:border-gold-400/20 transition-all"
                         onClick={() => setSelectedItem(data)}>
                         {renderItem(data, activeDomain)}
                       </motion.div>
@@ -494,9 +493,9 @@ export default function KnowledgePage() {
 
               {!loading && displayItems.length === 0 && !error && (
                 <div className="flex flex-col items-center justify-center py-24 max-w-2xl mx-auto">
-                  <Database size={36} className="text-slate-200 mb-3" />
-                  <p className="text-sm text-slate-400 font-medium">{searchMode ? '未找到匹配结果' : '暂无数据'}</p>
-                  <p className="text-[10px] text-slate-300 mt-1">{searchMode ? '请尝试调整关键词或切换知识域' : '请确认数据库已初始化并连接后端服务'}</p>
+                  <Database size={36} className="text-navy-700 mb-3" />
+                  <p className="text-sm text-slate-400 font-medium font-body">{searchMode ? '未找到匹配结果' : '暂无数据'}</p>
+                  <p className="text-[10px] text-slate-500 mt-1 font-body">{searchMode ? '请尝试调整关键词或切换知识域' : '请确认数据库已初始化并连接后端服务'}</p>
                 </div>
               )}
 
@@ -504,12 +503,12 @@ export default function KnowledgePage() {
               {!searchMode && totalPages > 1 && (
                 <div className="flex items-center justify-center gap-3 pt-4 pb-2">
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                    className="text-[10px] px-3 py-1 rounded-lg border border-gray-200 text-slate-500 hover:text-slate-600 hover:border-gray-200 disabled:opacity-30 transition-all">
+                    className="text-[10px] px-3 py-1 rounded-lg border border-navy-700/30 text-slate-400 hover:text-slate-300 hover:border-navy-700/50 disabled:opacity-30 transition-all font-body">
                     上一页
                   </button>
-                  <span className="text-[10px] text-slate-400 tabular-nums">{page} / {totalPages}</span>
+                  <span className="text-[10px] text-slate-400 tabular-nums font-body">{page} / {totalPages}</span>
                   <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                    className="text-[10px] px-3 py-1 rounded-lg border border-gray-200 text-slate-500 hover:text-slate-600 hover:border-gray-200 disabled:opacity-30 transition-all">
+                    className="text-[10px] px-3 py-1 rounded-lg border border-navy-700/30 text-slate-400 hover:text-slate-300 hover:border-navy-700/50 disabled:opacity-30 transition-all font-body">
                     下一页
                   </button>
                 </div>
@@ -518,50 +517,50 @@ export default function KnowledgePage() {
           </section>
 
           {/* 右侧详情面板 */}
-          <aside className="w-72 border-l border-gray-200 flex-shrink-0 overflow-y-auto bg-slate-50 hidden lg:block">
+          <aside className="w-72 border-l border-navy-700/30 flex-shrink-0 overflow-y-auto bg-navy-900/50 hidden lg:block">
             <div className="p-4 space-y-4">
               {/* 当前域信息 */}
-              <div className={`${currentTab.bg} rounded-xl p-3 border ${currentTab.border}`}>
+              <div className={`bg-gold-400/10 rounded-xl p-3 border border-gold-400/20`}>
                 <div className="flex items-center gap-2 mb-2">
-                  {(() => { const Ic = currentTab.icon; return <Ic size={14} className={currentTab.color} /> })()}
-                  <span className={`text-xs font-semibold ${currentTab.color}`}>{currentTab.label}</span>
+                  {(() => { const Ic = currentTab.icon; return <Ic size={14} className="text-gold-300" /> })()}
+                  <span className={`text-xs font-semibold text-gold-300 font-display`}>{currentTab.label}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-center">
-                  <div><div className="text-sm font-bold text-slate-800">{total.toLocaleString()}</div><div className="text-[9px] text-slate-400">条记录</div></div>
-                  <div><div className="text-sm font-bold text-slate-800">{categories.length - 1}</div><div className="text-[9px] text-slate-400">个分类</div></div>
+                  <div><div className="text-sm font-bold text-slate-50 font-display">{total.toLocaleString()}</div><div className="text-[9px] text-slate-400 font-body">条记录</div></div>
+                  <div><div className="text-sm font-bold text-slate-50 font-display">{categories.length - 1}</div><div className="text-[9px] text-slate-400 font-body">个分类</div></div>
                 </div>
               </div>
 
               {/* 选中项预览 */}
               {selectedItem ? (
-                <div className="pt-3 border-t border-gray-200">
+                <div className="pt-3 border-t border-navy-700/30">
                   <div className="flex items-center justify-between mb-2.5">
-                    <h4 className="text-[11px] font-semibold text-slate-600">选中内容</h4>
-                    <button onClick={() => setSelectedItem(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <h4 className="text-[11px] font-semibold text-slate-300 font-body">选中内容</h4>
+                    <button onClick={() => setSelectedItem(null)} className="text-slate-400 hover:text-slate-300 transition-colors">
                       <X size={12} />
                     </button>
                   </div>
-                  <div className="rounded-xl bg-slate-50 border border-gray-200 p-3 space-y-2.5">
+                  <div className="rounded-xl bg-navy-800/50 border border-navy-700/30 p-3 space-y-2.5">
                     {(() => {
                       const fields = getDetailFields(selectedItem, activeDomain)
                       return (
                         <>
-                          <h3 className="text-[11px] font-semibold text-slate-800 line-clamp-2">{fields.title}</h3>
+                          <h3 className="text-[11px] font-semibold text-slate-50 font-display line-clamp-2">{fields.title}</h3>
                           <div className="flex flex-wrap gap-1">
                             {fields.tags.map((tag, i) => (
                               <span key={i} className={`text-[9px] px-1.5 py-px rounded-full ${
-                                tag.type === 'primary' ? 'bg-blue-400/10 text-blue-400' :
+                                tag.type === 'primary' ? 'bg-gold-400/10 text-gold-300' :
                                 tag.type === 'success' ? 'bg-green-400/10 text-green-400' :
                                 tag.type === 'warning' ? 'bg-amber-400/10 text-amber-400' :
-                                'bg-slate-50 text-slate-500'
+                                'bg-navy-800/50 text-slate-400'
                               }`}>{tag.label}</span>
                             ))}
                           </div>
                           {fields.content && (
-                            <p className="text-[10px] text-slate-500 leading-relaxed line-clamp-4">{fields.content}</p>
+                            <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-4 font-body">{fields.content}</p>
                           )}
                           <button onClick={() => setSelectedItem(selectedItem)}
-                            className="w-full text-[10px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg border border-blue-400/15 hover:border-blue-400/30 transition-all">
+                            className="w-full text-[10px] text-gold-300 hover:text-gold-200 py-1.5 rounded-lg border border-gold-400/15 hover:border-gold-400/30 transition-all font-body">
                             查看完整详情
                           </button>
                         </>
@@ -571,9 +570,9 @@ export default function KnowledgePage() {
                 </div>
               ) : (
                 /* 快捷入口 */
-                <div className="pt-3 border-t border-gray-200">
-                  <h4 className="text-[11px] font-semibold text-slate-600 mb-2.5 flex items-center gap-1.5">
-                    <Zap size={12} className="text-amber-400" /> 常用检索
+                <div className="pt-3 border-t border-navy-700/30">
+                  <h4 className="text-[11px] font-semibold text-slate-300 mb-2.5 flex items-center gap-1.5 font-body">
+                    <Zap size={12} className="text-gold-300" /> 常用检索
                   </h4>
                   <div className="space-y-1.5">
                     {(activeDomain === 'law' ? [
@@ -593,13 +592,13 @@ export default function KnowledgePage() {
                       { title: '侵权抗辩策略', desc: '过错相抵·诉讼时效' },
                     ]).map((item, i) => (
                       <button key={i} onClick={() => { setSearchQuery(item.title); handleSearch(item.title) }}
-                        className="w-full flex items-start gap-2 p-2.5 rounded-lg hover:bg-slate-50 text-left group transition-all">
-                        <Hash size={11} className="text-blue-400/50 mt-0.5 flex-shrink-0 group-hover:text-blue-400" />
+                        className="w-full flex items-start gap-2 p-2.5 rounded-lg hover:bg-navy-800/50 text-left group transition-all">
+                        <Hash size={11} className="text-gold-400/40 mt-0.5 flex-shrink-0 group-hover:text-gold-300" />
                         <div className="min-w-0 flex-1">
-                          <span className="text-[11px] text-slate-600 group-hover:text-slate-800 truncate block">{item.title}</span>
-                          <span className="text-[9px] text-slate-300 line-clamp-1">{item.desc}</span>
+                          <span className="text-[11px] text-slate-300 group-hover:text-slate-50 truncate block font-body">{item.title}</span>
+                          <span className="text-[9px] text-slate-500 line-clamp-1 font-body">{item.desc}</span>
                         </div>
-                        <ChevronRight size={10} className="text-slate-200 mt-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <ChevronRight size={10} className="text-slate-600 mt-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </button>
                     ))}
                   </div>
@@ -607,8 +606,8 @@ export default function KnowledgePage() {
               )}
 
               {/* 更新时间 */}
-              <div className="pt-3 border-t border-gray-200">
-                <div className="flex items-center gap-2 text-[10px] text-slate-400">
+              <div className="pt-3 border-t border-navy-700/30">
+                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-body">
                   <Calendar size={10} />
                   <span>数据已持久化存储</span>
                 </div>
@@ -640,24 +639,24 @@ function renderItem(data: SearchResultItem | ListItemWithId, domain: string) {
 function renderLawItem(row: ListItemWithId) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Scale size={14} className="text-blue-400" />
+      <div className="w-8 h-8 rounded-lg bg-gold-400/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Scale size={14} className="text-gold-300" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <h3 className="text-[11px] font-semibold text-slate-800 group-hover:text-blue-300 truncate">{row.law_name || '未知法规'}</h3>
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-blue-400/10 text-blue-400 flex-shrink-0">{row.law_type || '未分类'}</span>
+          <h3 className="text-[11px] font-semibold text-slate-50 group-hover:text-gold-300 truncate font-display">{row.law_name || '未知法规'}</h3>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-gold-400/10 text-gold-300 flex-shrink-0">{row.law_type || '未分类'}</span>
           {row.article_number && <span className="text-[9px] px-1.5 py-px rounded-full bg-purple-400/10 text-purple-400 flex-shrink-0">第{row.article_number}条</span>}
         </div>
-        {row.article_title && <p className="text-[10px] text-slate-400 mb-1 truncate">{row.article_title}</p>}
-        <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2">{row.content || '暂无内容'}</p>
+        {row.article_title && <p className="text-[10px] text-slate-400 mb-1 truncate font-body">{row.article_title}</p>}
+        <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2 font-body">{row.content || '暂无内容'}</p>
         <div className="flex items-center gap-3 mt-2 flex-wrap">
-          {row.chapter && <span className="text-[9px] text-slate-300">{row.chapter}</span>}
-          {row.effective_date && <span className="text-[9px] text-slate-300">{String(row.effective_date)}</span>}
-          {row.status && <span className="text-[9px] text-slate-300">{String(row.status)}</span>}
+          {row.chapter && <span className="text-[9px] text-slate-500 font-body">{row.chapter}</span>}
+          {row.effective_date && <span className="text-[9px] text-slate-500 font-body">{String(row.effective_date)}</span>}
+          {row.status && <span className="text-[9px] text-slate-500 font-body">{String(row.status)}</span>}
         </div>
       </div>
-      <ChevronRight size={13} className="text-slate-200 group-hover:text-blue-500 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
+      <ChevronRight size={13} className="text-slate-600 group-hover:text-gold-400 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
     </div>
   )
 }
@@ -665,23 +664,23 @@ function renderLawItem(row: ListItemWithId) {
 function renderJudgeItem(row: ListItemWithId) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Gavel size={14} className="text-emerald-400" />
+      <div className="w-8 h-8 rounded-lg bg-gold-400/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Gavel size={14} className="text-gold-300" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-[11px] font-semibold text-slate-800 group-hover:text-emerald-300 truncate">{row.case_name || '未知案例'}</h3>
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-emerald-400/10 text-emerald-400 flex-shrink-0">{row.case_type || '未分类'}</span>
+          <h3 className="text-[11px] font-semibold text-slate-50 group-hover:text-gold-300 truncate font-display">{row.case_name || '未知案例'}</h3>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-gold-400/10 text-gold-300 flex-shrink-0">{row.case_type || '未分类'}</span>
         </div>
-        {row.cause_of_action && <p className="text-[10px] text-slate-400 mb-1 truncate">案由：{row.cause_of_action}</p>}
-        {row.judgment_result && <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2">{row.judgment_result}</p>}
+        {row.cause_of_action && <p className="text-[10px] text-slate-400 mb-1 truncate font-body">案由：{row.cause_of_action}</p>}
+        {row.judgment_result && <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2 font-body">{row.judgment_result}</p>}
         <div className="flex items-center gap-3 mt-2 flex-wrap">
-          {row.case_number && <span className="text-[9px] text-slate-300">{String(row.case_number)}</span>}
-          {row.court_name && <span className="text-[9px] text-slate-300">{String(row.court_name)}</span>}
-          {row.judgment_date && <span className="text-[9px] text-slate-300">{String(row.judgment_date)}</span>}
+          {row.case_number && <span className="text-[9px] text-slate-500 font-body">{String(row.case_number)}</span>}
+          {row.court_name && <span className="text-[9px] text-slate-500 font-body">{String(row.court_name)}</span>}
+          {row.judgment_date && <span className="text-[9px] text-slate-500 font-body">{String(row.judgment_date)}</span>}
         </div>
       </div>
-      <ChevronRight size={13} className="text-slate-200 group-hover:text-blue-500 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
+      <ChevronRight size={13} className="text-slate-600 group-hover:text-gold-400 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
     </div>
   )
 }
@@ -689,20 +688,20 @@ function renderJudgeItem(row: ListItemWithId) {
 function renderLawyerItem(row: ListItemWithId) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Shield size={14} className="text-orange-400" />
+      <div className="w-8 h-8 rounded-lg bg-gold-400/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Shield size={14} className="text-gold-300" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-[11px] font-semibold text-slate-800 group-hover:text-orange-300 truncate">{row.strategy_name || '未知策略'}</h3>
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-orange-400/10 text-orange-400 flex-shrink-0">{row.case_type || '未分类'}</span>
+          <h3 className="text-[11px] font-semibold text-slate-50 group-hover:text-gold-300 truncate font-display">{row.strategy_name || '未知策略'}</h3>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-gold-400/10 text-gold-300 flex-shrink-0">{row.case_type || '未分类'}</span>
           {row.success_rate != null && row.success_rate !== undefined &&
             <span className="text-[9px] px-1.5 py-px rounded-full bg-green-400/10 text-green-400 flex-shrink-0">成功率{row.success_rate}%</span>}
         </div>
-        {row.applicable_scenario && <p className="text-[10px] text-slate-400 mb-1 truncate">适用场景：{row.applicable_scenario}</p>}
-        {row.argument_template && <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2">{row.argument_template}</p>}
+        {row.applicable_scenario && <p className="text-[10px] text-slate-400 mb-1 truncate font-body">适用场景：{row.applicable_scenario}</p>}
+        {row.argument_template && <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2 font-body">{row.argument_template}</p>}
       </div>
-      <ChevronRight size={13} className="text-slate-200 group-hover:text-blue-500 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
+      <ChevronRight size={13} className="text-slate-600 group-hover:text-gold-400 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
     </div>
   )
 }
@@ -710,18 +709,18 @@ function renderLawyerItem(row: ListItemWithId) {
 function renderSearchItem(result: SearchResultItem) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Search size={14} className="text-blue-600" />
+      <div className="w-8 h-8 rounded-lg bg-gold-400/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Search size={14} className="text-gold-400" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-[11px] font-semibold text-slate-800 group-hover:text-blue-500 truncate">{result.source || '检索结果'}</h3>
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-blue-50 text-blue-600 flex-shrink-0">{result.doc_type || result.domain || '法律'}</span>
+          <h3 className="text-[11px] font-semibold text-slate-50 group-hover:text-gold-300 truncate font-display">{result.source || '检索结果'}</h3>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-gold-400/10 text-gold-300 flex-shrink-0">{result.doc_type || result.domain || '法律'}</span>
           {result.score > 0 && <span className="text-[9px] px-1.5 py-px rounded-full bg-green-400/10 text-green-400 flex-shrink-0">{(result.score * 100).toFixed(0)}%匹配</span>}
         </div>
-        <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-3">{result.content || '暂无内容'}</p>
+        <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-3 font-body">{result.content || '暂无内容'}</p>
       </div>
-      <ChevronRight size={13} className="text-slate-200 group-hover:text-blue-500 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
+      <ChevronRight size={13} className="text-slate-600 group-hover:text-gold-400 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all" />
     </div>
   )
 }
