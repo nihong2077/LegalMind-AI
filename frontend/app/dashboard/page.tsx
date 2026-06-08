@@ -68,10 +68,10 @@ export default function DashboardPage() {
   }
 
   const statCards = [
-    { label: 'AI 对话次数', value: stats?.chat_count ?? 0, icon: MessageSquare, color: 'text-gold-300' },
-    { label: '已分析文档', value: stats?.doc_count ?? 0, icon: FileText, color: 'text-gold-300' },
-    { label: '法律知识条目', value: stats?.knowledge_count ?? 2450, icon: BookOpen, color: 'text-emerald-400' },
-    { label: '案件处理效率', value: stats?.efficiency_gain ?? '+45%', icon: TrendingUp, color: 'text-gold-300' },
+    { label: 'AI 对话次数', value: stats?.chat_count ?? 0, icon: MessageSquare, color: 'text-blue-500' },
+    { label: '已分析文档', value: stats?.doc_count ?? 0, icon: FileText, color: 'text-blue-500' },
+    { label: '法律知识条目', value: stats?.knowledge_count ?? 2450, icon: BookOpen, color: 'text-blue-500' },
+    { label: '案件处理效率', value: stats?.efficiency_gain ?? '+45%', icon: TrendingUp, color: 'text-blue-500' },
   ]
 
   const quickActions = [
@@ -82,24 +82,24 @@ export default function DashboardPage() {
 
   const statusLabel = (s: string) => {
     switch (s) {
-      case 'completed': return { text: '已完成', cls: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' }
-      case 'analyzing': return { text: '分析中', cls: 'bg-gold-300/10 text-gold-300 border border-gold-300/20' }
-      case 'pending': return { text: '待处理', cls: 'bg-slate-400/10 text-slate-400 border border-slate-400/20' }
-      default: return { text: s, cls: 'bg-slate-400/10 text-slate-400 border border-slate-400/20' }
+      case 'completed': return { text: '已完成', cls: 'tag-emerald' }
+      case 'analyzing': return { text: '分析中', cls: 'tag-blue' }
+      case 'pending': return { text: '待处理', cls: 'bg-ink-100 text-ink-400 border border-ink-200 rounded-full px-2 py-0.5 text-[10px]' }
+      default: return { text: s, cls: 'bg-ink-100 text-ink-400 border border-ink-200 rounded-full px-2 py-0.5 text-[10px]' }
     }
   }
 
   return (
-    <div className="flex h-screen bg-navy-950">
+    <div className="flex h-screen bg-white">
       <Sidebar onLoginClick={() => setShowLoginModal(true)} />
-      <main className="flex-1 overflow-y-auto p-8">
+      <main className="flex-1 overflow-y-auto p-8 bg-white">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
         >
-          <h2 className="text-2xl font-bold font-display text-slate-50 mb-1">工作台</h2>
-          <p className="text-sm text-slate-400 mb-8 font-body">欢迎回来，以下是您的工作概览</p>
+          <h2 className="text-2xl font-bold font-display text-ink-900 mb-1">工作台</h2>
+          <p className="text-sm text-ink-500 mb-8 font-body">欢迎回来，以下是您的工作概览</p>
         </motion.div>
 
         {/* Stat Cards */}
@@ -118,11 +118,11 @@ export default function DashboardPage() {
               <div className="feature-glow" />
               <div className="flex items-center justify-between mb-3 relative z-10">
                 <s.icon size={18} className={s.color} />
-                <span className="text-2xl font-bold font-display text-gold-300">
+                <span className="text-2xl font-bold font-display text-ink-900">
                   {loading ? '...' : s.value}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 relative z-10 font-body">{s.label}</p>
+              <p className="text-xs text-ink-500 relative z-10 font-body">{s.label}</p>
             </motion.div>
           ))}
         </motion.div>
@@ -131,7 +131,7 @@ export default function DashboardPage() {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
           <div className="lg:col-span-2 space-y-4">
-            <h3 className="text-lg font-semibold font-display text-slate-50">快速操作</h3>
+            <h3 className="text-lg font-semibold font-display text-ink-900">快速操作</h3>
             <motion.div
               variants={container}
               initial="hidden"
@@ -140,11 +140,11 @@ export default function DashboardPage() {
             >
               {quickActions.map((a) => (
                 <motion.div key={a.title} variants={item}>
-                  <Link href={a.href} className="glass-card p-6 block group">
+                  <Link href={a.href} className="glass-card p-6 block group hover:bg-blue-50/50 transition-colors">
                     <div className="feature-glow" />
-                    <a.icon size={24} className="text-gold-300 mb-4 relative z-10" />
-                    <h4 className="font-semibold text-slate-50 mb-1 relative z-10 font-display">{a.title}</h4>
-                    <p className="text-xs text-slate-400 relative z-10 font-body">{a.desc}</p>
+                    <a.icon size={24} className="text-blue-500 mb-4 relative z-10" />
+                    <h4 className="font-semibold text-ink-800 mb-1 relative z-10 font-display">{a.title}</h4>
+                    <p className="text-xs text-ink-500 relative z-10 font-body">{a.desc}</p>
                   </Link>
                 </motion.div>
               ))}
@@ -154,10 +154,10 @@ export default function DashboardPage() {
           {/* Recent Cases */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold font-display text-slate-50">最近案件</h3>
+              <h3 className="text-lg font-semibold font-display text-ink-900">最近案件</h3>
               <div className="flex items-center gap-2">
                 {authed && cases.length > 0 && (
-                  <Link href="/cases" className="text-xs text-gold-300 hover:text-gold-200 flex items-center gap-1 font-body transition-colors duration-300">
+                  <Link href="/cases" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 font-body transition-colors duration-300">
                     <FolderOpen size={12} /> 全部案件
                   </Link>
                 )}
@@ -169,12 +169,12 @@ export default function DashboardPage() {
                   const sl = statusLabel(c.status)
                   return (
                     <div key={c.id} className="glass-card-static p-4">
-                      <p className="text-sm text-slate-300 mb-2 truncate font-body">{c.title}</p>
+                      <p className="text-sm text-ink-700 mb-2 truncate font-body">{c.title}</p>
                       <div className="flex items-center justify-between">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${sl.cls} font-body`}>
+                        <span className={`${sl.cls} font-body`}>
                           {sl.text}
                         </span>
-                        <span className="text-[10px] text-slate-500 font-body">{c.created_at}</span>
+                        <span className="text-[10px] text-ink-400 font-body">{c.created_at}</span>
                       </div>
                     </div>
                   )
@@ -182,15 +182,15 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="glass-card-static p-6 text-center">
-                <p className="text-xs text-slate-400 mb-3 font-body">
+                <p className="text-xs text-ink-400 mb-3 font-body">
                   {authed ? '暂无案件记录' : '请先登录查看案件'}
                 </p>
                 {authed && (
                   <div className="flex flex-col items-center gap-2">
-                    <Link href="/court" className="text-xs text-gold-300 hover:text-gold-200 flex items-center gap-1 font-body transition-colors duration-300">
+                    <Link href="/court" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 font-body transition-colors duration-300">
                       <Gavel size={12} /> 开始模拟法庭
                     </Link>
-                    <Link href="/cases" className="text-xs text-slate-400 hover:text-slate-300 flex items-center gap-1 font-body transition-colors duration-300">
+                    <Link href="/cases" className="text-xs text-ink-400 hover:text-ink-600 flex items-center gap-1 font-body transition-colors duration-300">
                       <FolderOpen size={12} /> 查看案件记忆
                     </Link>
                   </div>

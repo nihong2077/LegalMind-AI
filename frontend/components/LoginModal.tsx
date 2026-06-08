@@ -34,7 +34,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -42,21 +42,21 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             className="glass-card-static w-full max-w-sm mx-4 p-6 relative"
           >
-            <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-gold-300 transition-colors">
+            <button onClick={onClose} className="absolute top-4 right-4 text-ink-300 hover:text-ink-600 transition-colors">
               <X size={18} />
             </button>
 
             <div className="flex flex-col items-center mb-6">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 flex items-center justify-center mb-3">
-                <Shield size={24} className="text-navy-900" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mb-3">
+                <Shield size={24} className="text-white" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-50 font-display">登录 LegalMind AI</h2>
-              <p className="text-xs text-slate-400 mt-1 font-body">智能法援助手</p>
+              <h2 className="text-lg font-semibold text-ink-900 font-display">登录 LegalMind AI</h2>
+              <p className="text-xs text-ink-400 mt-1 font-body">智能法援助手</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400 mb-1.5 block font-body">用户名</label>
+                <label className="text-xs text-ink-500 mb-1.5 block font-body">用户名</label>
                 <input
                   type="text"
                   value={username}
@@ -67,7 +67,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1.5 block font-body">密码</label>
+                <label className="text-xs text-ink-500 mb-1.5 block font-body">密码</label>
                 <input
                   type="password"
                   value={password}
@@ -78,7 +78,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
               </div>
 
               {error && (
-                <div className="text-xs bg-red-900/30 border border-red-500/30 text-red-400 rounded-lg px-3 py-2 font-body">
+                <div className="text-xs bg-red-50 border border-red-200 text-red-600 rounded-lg px-3 py-2 font-body">
                   {error}
                 </div>
               )}
@@ -86,13 +86,13 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
               <button
                 type="submit"
                 disabled={!username.trim() || !password.trim() || loading}
-                className="gold-btn w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="primary-btn w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? <Loader2 size={16} className="animate-spin" /> : null}
                 {loading ? '登录中...' : '登录'}
               </button>
 
-              <p className="text-[10px] text-slate-500 text-center font-body">
+              <p className="text-[10px] text-ink-300 text-center font-body">
                 默认账号：admin / admin
               </p>
             </form>

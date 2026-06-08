@@ -37,28 +37,28 @@ type RevisionItem = { level: string; title: string; description: string; origina
 
 function statusIcon(status: string, size = 14) {
   switch (status) {
-    case 'pass': return <CheckCircle size={size} className="text-emerald-400" />
-    case 'warning': return <AlertTriangle size={size} className="text-amber-400" />
-    case 'danger': return <AlertCircle size={size} className="text-red-400" />
-    default: return <MinusCircle size={size} className="text-slate-500" />
+    case 'pass': return <CheckCircle size={size} className="text-emerald-500" />
+    case 'warning': return <AlertTriangle size={size} className="text-amber-500" />
+    case 'danger': return <AlertCircle size={size} className="text-red-500" />
+    default: return <MinusCircle size={size} className="text-ink-400" />
   }
 }
 
 function statusBadge(status: string) {
-  const map: Record<string, { bg: string; text: string; label: string }> = {
-    pass:     { bg: 'bg-emerald-900/20', text: 'text-emerald-400', label: '已通过' },
-    warning:  { bg: 'bg-amber-900/20', text: 'text-amber-400', label: '需注意' },
-    danger:   { bg: 'bg-red-900/20',   text: 'text-red-400',   label: '高风险' },
-    info:     { bg: 'bg-navy-800/50',  text: 'text-slate-400',  label: '待审查' },
+  const map: Record<string, { tagClass: string; label: string }> = {
+    pass:     { tagClass: 'tag-emerald', label: '已通过' },
+    warning:  { tagClass: 'tag-amber',  label: '需注意' },
+    danger:   { tagClass: 'tag-red',    label: '高风险' },
+    info:     { tagClass: 'tag-blue',   label: '待审查' },
   }
   const s = map[status] || map.info
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.bg} ${s.text}`}>{s.label}</span>
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.tagClass}`}>{s.label}</span>
 }
 
 function riskBadge(level: string) {
-  if (level.includes('P0') || level.includes('高')) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/20 text-red-400 border border-red-800/30 font-medium">高风险</span>
-  if (level.includes('P1') || level.includes('中')) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-400 border border-amber-800/30 font-medium">中风险</span>
-  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-800/50 text-gold-300 border border-gold-800/30">低风险</span>
+  if (level.includes('P0') || level.includes('高')) return <span className="tag-red font-medium">高风险</span>
+  if (level.includes('P1') || level.includes('中')) return <span className="tag-amber font-medium">中风险</span>
+  return <span className="tag-blue font-medium">低风险</span>
 }
 
 export default function DocumentUpload() {
@@ -262,40 +262,40 @@ export default function DocumentUpload() {
 
   const filteredClauses = clausesDisplay.filter(c => !searchKeyword || c.title.includes(searchKeyword) || c.content.includes(searchKeyword))
 
-  const CAN_SIGN_STYLE: Record<string, { bg: string; text: string }> = {
-    '可签': { bg: 'bg-emerald-900/20', text: 'text-emerald-400' },
-    '有条件可签': { bg: 'bg-amber-900/20', text: 'text-amber-400' },
-    '不建议签': { bg: 'bg-red-900/20', text: 'text-red-400' },
-    '待评估': { bg: 'bg-navy-800/50', text: 'text-slate-400' },
+  const CAN_SIGN_STYLE: Record<string, { tagClass: string }> = {
+    '可签': { tagClass: 'tag-emerald' },
+    '有条件可签': { tagClass: 'tag-amber' },
+    '不建议签': { tagClass: 'tag-red' },
+    '待评估': { tagClass: 'tag-blue' },
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-white">
       <Sidebar onLoginClick={() => setShowLoginModal(true)} />
 
-      <main className="flex-1 flex flex-col bg-navy-950 overflow-hidden">
+      <main className="flex-1 flex flex-col bg-white overflow-hidden">
         {/* 顶部标题栏 */}
-        <header className="h-14 border-b border-navy-700/30 flex items-center justify-between px-6 bg-navy-950 flex-shrink-0 z-10">
+        <header className="h-14 bg-white border-b border-ink-200 flex items-center justify-between px-6 flex-shrink-0 z-10">
           <div className="flex items-center gap-3">
-            <Shield size={20} className="text-gold-300" />
-            <h1 className="text-base font-semibold text-slate-50 font-display">合同审查工作台</h1>
+            <Shield size={20} className="text-blue-600" />
+            <h1 className="text-base font-semibold text-ink-900 font-display">合同审查工作台</h1>
             {caseName && (
               <>
-                <span className="text-sm text-slate-400 font-medium font-body">{caseName}</span>
+                <span className="text-sm text-ink-600 font-medium font-body">{caseName}</span>
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                  riskLevelLabel.includes('高') ? 'bg-red-900/20 text-red-400 border border-red-800/30' :
-                  riskLevelLabel.includes('中高') ? 'bg-orange-900/20 text-orange-400 border border-orange-800/30' :
-                  riskLevelLabel.includes('中') ? 'bg-amber-900/20 text-amber-400 border border-amber-800/30' :
-                  'bg-emerald-900/20 text-emerald-400 border border-emerald-800/30'
+                  riskLevelLabel.includes('高') ? 'bg-red-50 text-red-600 border border-red-200' :
+                  riskLevelLabel.includes('中高') ? 'bg-orange-50 text-orange-600 border border-orange-200' :
+                  riskLevelLabel.includes('中') ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                  'bg-emerald-50 text-emerald-600 border border-emerald-200'
                 }`}>综合风险：{riskLevelLabel}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${CAN_SIGN_STYLE[canSign]?.bg || 'bg-navy-800/50'} ${CAN_SIGN_STYLE[canSign]?.text || 'text-slate-400'}`}>{canSign}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${CAN_SIGN_STYLE[canSign]?.tagClass || 'tag-blue'}`}>{canSign}</span>
               </>
             )}
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => fileInputRef.current?.click()} className="gold-btn-sm flex items-center gap-1.5"><Plus size={12} /> 上传合同</button>
-            {hasReviewData && <button onClick={handleExportReport} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-800/50 border border-navy-700/30 text-gold-300 text-xs hover:bg-navy-800/70 transition-colors"><Download size={12} /> 导出报告</button>}
-            {hasReviewData && <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-800/50 border border-navy-700/30 text-slate-400 text-xs hover:bg-navy-800/70 transition-colors"><X size={12} /> 重新上传</button>}
+            <button onClick={() => fileInputRef.current?.click()} className="btn-sm flex items-center gap-1.5"><Plus size={12} /> 上传合同</button>
+            {hasReviewData && <button onClick={handleExportReport} className="btn-sm flex items-center gap-1.5"><Download size={12} /> 导出报告</button>}
+            {hasReviewData && <button onClick={handleReset} className="outline-btn flex items-center gap-1.5"><X size={12} /> 重新上传</button>}
           </div>
         </header>
 
@@ -306,20 +306,20 @@ export default function DocumentUpload() {
           <div className="flex-1 flex items-center justify-center p-8">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
               className={`glass-card w-full max-w-xl border-2 border-dashed rounded-2xl p-12 text-center transition-colors ${
-                dragActive ? 'border-gold-400 bg-navy-800/50' : 'border-navy-700/30 bg-navy-900/50 hover:border-gold-400/50 hover:bg-navy-800/30'
+                dragActive ? 'border-blue-400 bg-blue-50/30' : 'border-ink-200 bg-white hover:border-blue-300 hover:bg-blue-50/10'
               }`}
               onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={e => { handleDrag(e); handleFiles(e.dataTransfer.files) }}
             >
-              <div className="w-16 h-16 rounded-2xl bg-navy-800/50 flex items-center justify-center mx-auto mb-5">
-                <FileUp size={28} className="text-gold-300" />
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-5">
+                <FileUp size={28} className="text-blue-600" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-50 mb-2 font-display">上传合同文件</h2>
-              <p className="text-sm text-slate-400 mb-6 font-body">支持 PDF、Word、TXT 格式，上传后 AI 将自动进行合同审查</p>
+              <h2 className="text-lg font-semibold text-ink-900 mb-2 font-display">上传合同文件</h2>
+              <p className="text-sm text-ink-500 mb-6 font-body">支持 PDF、Word、TXT 格式，上传后 AI 将自动进行合同审查</p>
               <button onClick={() => fileInputRef.current?.click()}
-                className="gold-btn px-6 py-2.5 rounded-xl text-sm font-medium shadow-sm">
+                className="primary-btn px-6 py-2.5 rounded-xl text-sm font-medium shadow-sm">
                 选择文件上传
               </button>
-              <p className="text-xs text-slate-500 mt-4 font-body">或将文件拖拽到此处</p>
+              <p className="text-xs text-ink-400 mt-4 font-body">或将文件拖拽到此处</p>
             </motion.div>
           </div>
         )}
@@ -328,10 +328,10 @@ export default function DocumentUpload() {
         {files.length > 0 && !hasReviewData && (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center">
-              <Loader2 size={32} className="animate-spin text-gold-300 mx-auto mb-4" />
-              <h3 className="text-base font-medium text-slate-200 mb-1 font-body">正在上传合同文件...</h3>
-              <p className="text-sm text-slate-400 font-body">{files[0].name} ({files[0].size})</p>
-              {error && <p className="text-sm text-red-400 mt-2">{error}</p>}
+              <Loader2 size={32} className="animate-spin text-blue-600 mx-auto mb-4" />
+              <h3 className="text-base font-medium text-ink-800 mb-1 font-body">正在上传合同文件...</h3>
+              <p className="text-sm text-ink-500 font-body">{files[0].name} ({files[0].size})</p>
+              {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
             </div>
           </div>
         )}
@@ -342,21 +342,21 @@ export default function DocumentUpload() {
             <div className="flex-1 flex overflow-hidden min-h-0">
 
               {/* 左侧 - 合同结构树 */}
-              <aside className="w-52 border-r border-navy-700/30 flex-shrink-0 overflow-y-auto bg-navy-900/50">
+              <aside className="w-52 bg-ink-50/30 border-r border-ink-200 flex-shrink-0 overflow-y-auto">
                 <div className="p-4 space-y-1">
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-navy-700/30">
-                    <span className="text-xs font-semibold text-slate-300 font-body">合同结构</span>
-                    <span className="text-[10px] text-emerald-400">{stats.completion_rate}%</span>
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-ink-200">
+                    <span className="text-xs font-semibold text-ink-700 font-body">合同结构</span>
+                    <span className="text-[10px] text-emerald-500">{stats.completion_rate}%</span>
                   </div>
 
                   {clauseTree.length > 0 ? clauseTree.map(item => (
-                    <button key={item.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-navy-800/50 transition-colors group">
+                    <button key={item.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-white transition-colors group">
                       {statusIcon(item.status)}
-                      <span className={`text-xs flex-1 truncate font-body ${item.status === 'danger' ? 'text-red-400' : item.status === 'warning' ? 'text-amber-400' : 'text-slate-300 group-hover:text-slate-50'}`}>
+                      <span className={`text-xs flex-1 truncate font-body ${item.status === 'danger' ? 'text-red-500' : item.status === 'warning' ? 'text-amber-500' : 'text-ink-700 group-hover:text-ink-900'}`}>
                         {item.label}
                       </span>
                       {item.risk_count > 0 && (
-                        <span className={`text-[10px] w-4 h-4 rounded-full flex items-center justify-center ${item.status === 'danger' ? 'bg-red-900/30 text-red-400' : 'bg-amber-900/30 text-amber-400'}`}>
+                        <span className={`text-[10px] w-4 h-4 rounded-full flex items-center justify-center ${item.status === 'danger' ? 'bg-red-100 text-red-500' : 'bg-amber-100 text-amber-500'}`}>
                           {item.risk_count}
                         </span>
                       )}
@@ -366,51 +366,51 @@ export default function DocumentUpload() {
                       <div className="space-y-2">
                         {[1,2,3,4,5,6].map(i => (
                           <div key={i} className="flex items-center gap-2.5 px-2.5 py-2 animate-pulse">
-                            <div className="w-3.5 h-3.5 rounded-full bg-navy-800/50" /><div className="h-2.5 flex-1 rounded bg-navy-800/50" />
+                            <div className="w-3.5 h-3.5 rounded-full bg-ink-200" /><div className="h-2.5 flex-1 rounded bg-ink-200" />
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-slate-500 text-center py-8 font-body">等待条款提取...</p>
+                      <p className="text-[11px] text-ink-400 text-center py-8 font-body">等待条款提取...</p>
                     )
                   )}
-                </div>
 
-                {stats.total_clauses > 0 && (
-                  <div className="mx-4 mb-4 mt-2 pt-3 border-t border-navy-700/30 space-y-2">
-                    <h4 className="text-[11px] font-semibold text-slate-400 font-body">审查概览</h4>
-                    <div className="grid grid-cols-2 gap-1.5 text-[10px] font-body">
-                      <div className="flex justify-between"><span className="text-slate-400">共识别</span><span className="text-slate-300">{stats.total_clauses} 个条款</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">发现</span><span className="text-red-400">{stats.high_risk + stats.medium_risk + stats.low_risk} 处风险</span></div>
-                      <div className="flex justify-between"><span className="text-red-400">● 高风险</span><span className="text-slate-300">{stats.high_risk} 处</span></div>
-                      <div className="flex justify-between"><span className="text-amber-400">● 中风险</span><span className="text-slate-300">{stats.medium_risk} 处</span></div>
-                      <div className="flex justify-between"><span className="text-gold-300">● 低风险</span><span className="text-slate-300">{stats.low_risk} 处</span></div>
-                      <div className="flex justify-between"><span className="text-emerald-400">● 已通过</span><span className="text-slate-300">{stats.passed} 处</span></div>
-                    </div>
-                    <div className="pt-2">
-                      <div className="flex justify-between text-[10px] mb-1 font-body"><span className="text-slate-400">审查完成度</span><span className="text-slate-400">{stats.completion_rate}%</span></div>
-                      <div className="h-1.5 rounded-full bg-navy-800/50 overflow-hidden">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${stats.completion_rate}%` }} transition={{ duration: 0.8 }}
-                          className={`h-full rounded-full ${stats.completion_rate >= 80 ? 'bg-emerald-500' : stats.completion_rate >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} />
+                  {stats.total_clauses > 0 && (
+                    <div className="mx-4 mb-4 mt-2 pt-3 border-t border-ink-200 space-y-2">
+                      <h4 className="text-[11px] font-semibold text-ink-500 font-body">审查概览</h4>
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px] font-body">
+                        <div className="flex justify-between"><span className="text-ink-500">共识别</span><span className="text-ink-700">{stats.total_clauses} 个条款</span></div>
+                        <div className="flex justify-between"><span className="text-ink-500">发现</span><span className="text-red-500">{stats.high_risk + stats.medium_risk + stats.low_risk} 处风险</span></div>
+                        <div className="flex justify-between"><span className="text-red-500">● 高风险</span><span className="text-ink-700">{stats.high_risk} 处</span></div>
+                        <div className="flex justify-between"><span className="text-amber-500">● 中风险</span><span className="text-ink-700">{stats.medium_risk} 处</span></div>
+                        <div className="flex justify-between"><span className="text-blue-500">● 低风险</span><span className="text-ink-700">{stats.low_risk} 处</span></div>
+                        <div className="flex justify-between"><span className="text-emerald-500">● 已通过</span><span className="text-ink-700">{stats.passed} 处</span></div>
+                      </div>
+                      <div className="pt-2">
+                        <div className="flex justify-between text-[10px] mb-1 font-body"><span className="text-ink-500">审查完成度</span><span className="text-ink-500">{stats.completion_rate}%</span></div>
+                        <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                          <motion.div initial={{ width: 0 }} animate={{ width: `${stats.completion_rate}%` }} transition={{ duration: 0.8 }}
+                            className={`h-full rounded-full ${stats.completion_rate >= 80 ? 'bg-emerald-500' : stats.completion_rate >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </aside>
 
               {/* 中间 - 合同原文 + 审查结果 */}
-              <section className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <div className="h-10 border-b border-navy-700/30 flex items-center justify-between px-4 flex-shrink-0">
+              <section className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+                <div className="h-10 border-b border-ink-200 flex items-center justify-between px-4 flex-shrink-0 bg-white">
                   <div className="flex items-center gap-1">
                     <button onClick={() => setActiveMiddleTab('original')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs font-medium transition-colors font-body ${
-                        activeMiddleTab === 'original' ? 'text-gold-300 bg-navy-800/50 border-b-2 border-gold-400' : 'text-slate-400 hover:text-slate-300'
+                        activeMiddleTab === 'original' ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-500' : 'text-ink-500 hover:text-ink-700'
                       }`}>
                       <FileText size={13} /> 合同原文
                     </button>
                     <button onClick={() => setActiveMiddleTab('review')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs font-medium transition-colors font-body ${
-                        activeMiddleTab === 'review' ? 'text-gold-300 bg-navy-800/50 border-b-2 border-gold-400' : 'text-slate-400 hover:text-slate-300'
+                        activeMiddleTab === 'review' ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-500' : 'text-ink-500 hover:text-ink-700'
                       }`}>
                       <FileCheck size={13} /> 审查结果
                     </button>
@@ -419,12 +419,12 @@ export default function DocumentUpload() {
                     {activeMiddleTab === 'review' && (
                       <>
                         <div className="relative">
-                          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+                          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-400" />
                           <input value={searchKeyword} onChange={e => setSearchKeyword(e.target.value)}
                                  placeholder="搜索条款内容" className="input-field text-[10px] pl-7 pr-3 py-1 w-36" />
                         </div>
-                        <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer select-none font-body">
-                          <input type="checkbox" checked={showHighOnly} onChange={e => setShowHighOnly(e.target.checked)} className="rounded border-navy-600" /> 仅高危
+                        <label className="flex items-center gap-1 text-[10px] text-ink-500 cursor-pointer select-none font-body">
+                          <input type="checkbox" checked={showHighOnly} onChange={e => setShowHighOnly(e.target.checked)} className="rounded border-ink-300" /> 仅高危
                         </label>
                       </>
                     )}
@@ -432,7 +432,7 @@ export default function DocumentUpload() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4">
-                  {error && <div className="p-3 rounded-lg bg-red-900/20 border border-red-800/30 text-red-400 text-xs mb-3 font-body">{error}</div>}
+                  {error && <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs mb-3 font-body">{error}</div>}
 
                   {/* 合同原文标签 */}
                   {activeMiddleTab === 'original' && (
@@ -443,21 +443,21 @@ export default function DocumentUpload() {
                           r.location && line.includes(r.location.replace(/位置：/, ''))
                         )
                         return (
-                          <div key={i} className={`flex items-start gap-2 group ${relatedRisk ? 'bg-red-900/10 -mx-2 px-2 rounded' : ''}`}>
+                          <div key={i} className={`flex items-start gap-2 group ${relatedRisk ? 'bg-red-50 -mx-2 px-2 rounded' : ''}`}>
                             {relatedRisk && (
                               <div className="flex-shrink-0 mt-1">
-                                <AlertTriangle size={12} className="text-red-400" />
+                                <AlertTriangle size={12} className="text-red-500" />
                               </div>
                             )}
                             <p className={`text-sm leading-relaxed whitespace-pre-wrap break-all font-body ${
                               line.trim() === '' ? 'h-3' :
-                              line.match(/^(第[一二三四五六七八九十]+[条章节部分编]|合同|协议|甲方|乙方|甲方|乙方|签署|盖章|日期)/) ? 'font-semibold text-slate-50 mt-3' :
-                              'text-slate-300'
+                              line.match(/^(第[一二三四五六七八九十]+[条章节部分编]|合同|协议|甲方|乙方|甲方|乙方|签署|盖章|日期)/) ? 'font-semibold text-ink-900 mt-3' :
+                              'text-ink-700'
                             }`}>{line}</p>
                           </div>
                         )
                       }) : (
-                        <div className="flex items-center justify-center py-20 text-slate-500 text-sm font-body">暂无合同原文</div>
+                        <div className="flex items-center justify-center py-20 text-ink-400 text-sm font-body">暂无合同原文</div>
                       )}
                     </div>
                   )}
@@ -467,43 +467,43 @@ export default function DocumentUpload() {
                     <div className="space-y-3">
                       {filteredClauses.length > 0 ? filteredClauses.filter(c => !showHighOnly || c.status === 'danger').map((clause, i) => (
                         <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                          className={`rounded-xl border p-4 ${
-                            clause.status === 'danger' ? 'bg-red-900/10 border-red-800/30' :
-                            clause.status === 'warning' ? 'bg-amber-900/10 border-amber-800/30' :
-                            clause.status === 'pass' ? 'bg-emerald-900/10 border-emerald-800/30' :
-                            'bg-navy-900/50 border-navy-700/30'
+                          className={`glass-card-static rounded-xl border p-4 ${
+                            clause.status === 'danger' ? 'bg-red-50 border-red-200' :
+                            clause.status === 'warning' ? 'bg-amber-50 border-amber-200' :
+                            clause.status === 'pass' ? 'bg-emerald-50 border-emerald-200' :
+                            'bg-white border-ink-200'
                           }`}>
                           <div className="flex items-start justify-between gap-3 mb-2">
-                            <h3 className={`text-xs font-semibold font-body ${clause.status === 'danger' ? 'text-red-400' : clause.status === 'warning' ? 'text-amber-400' : 'text-slate-300'}`}>
+                            <h3 className={`text-xs font-semibold font-body ${clause.status === 'danger' ? 'text-red-600' : clause.status === 'warning' ? 'text-amber-600' : 'text-ink-800'}`}>
                               {clause.title}
                             </h3>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               {statusBadge(clause.status)}
-                              {clause.location && <span className="text-[9px] text-slate-500">位置：{clause.location}</span>}
+                              {clause.location && <span className="text-[9px] text-ink-400">位置：{clause.location}</span>}
                             </div>
                           </div>
-                          <p className="text-[11px] text-slate-400 leading-relaxed whitespace-pre-wrap mb-2.5 font-body">{clause.content}</p>
+                          <p className="text-[11px] text-ink-600 leading-relaxed whitespace-pre-wrap mb-2.5 font-body">{clause.content}</p>
                           {clause.tags && clause.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mb-2">
                               {clause.tags.map((tag, ti) => (
-                                <span key={ti} className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/20 text-red-400 border border-red-800/30">{tag}</span>
+                                <span key={ti} className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">{tag}</span>
                               ))}
                             </div>
                           )}
                           {clause.suggestion && (
-                            <div className="flex items-start gap-1.5 text-[10px] text-amber-400 bg-amber-900/10 rounded-md px-2.5 py-1.5 font-body">
+                            <div className="flex items-start gap-1.5 text-[10px] text-amber-600 bg-amber-50 rounded-md px-2.5 py-1.5 font-body">
                               <ArrowUpRight size={11} className="mt-0.5 flex-shrink-0" />
                               <span>建议修改：{clause.suggestion}</span>
                             </div>
                           )}
                         </motion.div>
                       )) : isReviewing ? (
-                        <div className="flex items-center justify-center py-20 gap-3 text-slate-400">
-                          <Loader2 size={18} className="animate-spin text-gold-300" />
+                        <div className="flex items-center justify-center py-20 gap-3 text-ink-400">
+                          <Loader2 size={18} className="animate-spin text-blue-600" />
                           <span className="text-sm font-body">正在提取条款并扫描风险...</span>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-center py-20 text-slate-500 text-sm font-body">暂无条款数据</div>
+                        <div className="flex items-center justify-center py-20 text-ink-400 text-sm font-body">暂无条款数据</div>
                       )}
                     </div>
                   )}
@@ -511,13 +511,13 @@ export default function DocumentUpload() {
               </section>
 
               {/* 右侧 - 三标签面板 */}
-              <aside className="w-80 border-l border-navy-700/30 flex-shrink-0 overflow-y-auto bg-navy-900/50">
-                <div className="sticky top-0 z-10 bg-navy-950/80 backdrop-blur-sm border-b border-navy-700/30">
+              <aside className="w-80 border-l border-ink-200 bg-ink-50/30 flex-shrink-0 overflow-y-auto">
+                <div className="sticky top-0 z-10 bg-white backdrop-blur-sm border-b border-ink-200">
                   <div className="flex">
                     {(['risks', 'revisions', 'conclusion'] as const).map(tab => (
                       <button key={tab} onClick={() => setActiveRightTab(tab)}
                         className={`flex-1 text-[11px] py-2.5 font-medium transition-all border-b-2 font-body ${
-                          activeRightTab === tab ? 'border-gold-400 text-gold-300 bg-navy-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'
+                          activeRightTab === tab ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-transparent text-ink-500 hover:text-ink-700'
                         }`}>
                         {tab === 'risks' ? '风险清单' : tab === 'revisions' ? '修订建议' : '审查结论'}
                       </button>
@@ -528,83 +528,83 @@ export default function DocumentUpload() {
                 <div className="p-4 space-y-3">
                   {activeRightTab === 'risks' && (
                     riskList.length > 0 ? riskList.map((risk, i) => (
-                      <div key={i} className="rounded-lg glass-card border border-navy-700/30 p-3 hover:border-red-800/30 transition-colors">
+                      <div key={i} className="rounded-lg glass-card border border-ink-200 p-3 hover:border-red-200 transition-colors">
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <div className="flex items-center gap-1.5">
                             {riskBadge(risk.level)}
-                            <span className="text-[11px] font-medium text-slate-200 font-body">{risk.title}</span>
+                            <span className="text-[11px] font-medium text-ink-800 font-body">{risk.title}</span>
                           </div>
-                          {risk.location && <span className="text-[9px] text-slate-500 flex-shrink-0">位置：{risk.location}</span>}
+                          {risk.location && <span className="text-[9px] text-ink-400 flex-shrink-0">位置：{risk.location}</span>}
                         </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed mb-1.5 font-body">{risk.description}</p>
-                        {risk.legal_basis && <p className="text-[10px] text-gold-300 mb-1.5 font-body"><span className="text-slate-500">问题依据：</span>{risk.legal_basis}</p>}
+                        <p className="text-[10px] text-ink-600 leading-relaxed mb-1.5 font-body">{risk.description}</p>
+                        {risk.legal_basis && <p className="text-[10px] text-blue-600 mb-1.5 font-body"><span className="text-ink-500">问题依据：</span>{risk.legal_basis}</p>}
                         {risk.suggestion && (
-                          <div className="text-[10px] text-amber-400 bg-amber-900/10 rounded px-2 py-1.5 font-body">
-                            <span className="text-slate-500">建议修改：</span>{risk.suggestion}
+                          <div className="text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1.5 font-body">
+                            <span className="text-ink-500">建议修改：</span>{risk.suggestion}
                           </div>
                         )}
                       </div>
-                    )) : <div className="text-center py-12 text-[11px] text-slate-500 font-body">{isReviewing ? '正在扫描风险...' : '暂无风险数据'}</div>
+                    )) : <div className="text-center py-12 text-[11px] text-ink-400 font-body">{isReviewing ? '正在扫描风险...' : '暂无风险数据'}</div>
                   )}
 
                   {activeRightTab === 'revisions' && (
                     revisionList.length > 0 ? revisionList.map((rev, i) => (
-                      <div key={i} className="rounded-lg glass-card border border-navy-700/30 p-3 hover:border-amber-800/30 transition-colors">
+                      <div key={i} className="rounded-lg glass-card border border-ink-200 p-3 hover:border-amber-200 transition-colors">
                         <div className="flex items-center gap-1.5 mb-1.5">
                           {riskBadge(rev.level)}
-                          <span className="text-[11px] font-medium text-slate-200 font-body">{rev.title}</span>
-                          {rev.location && <span className="text-[9px] text-slate-500 ml-auto">位置：{rev.location}</span>}
+                          <span className="text-[11px] font-medium text-ink-800 font-body">{rev.title}</span>
+                          {rev.location && <span className="text-[9px] text-ink-400 ml-auto">位置：{rev.location}</span>}
                         </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed mb-2 font-body">{rev.description}</p>
+                        <p className="text-[10px] text-ink-600 leading-relaxed mb-2 font-body">{rev.description}</p>
                         {rev.original_text && (
                           <div className="mb-1.5">
-                            <span className="text-[9px] text-red-400 block mb-0.5 font-body">原文：</span>
-                            <p className="text-[10px] text-red-400 bg-red-900/10 rounded px-2 py-1.5 line-through decoration-red-600/50 font-body">{rev.original_text}</p>
+                            <span className="text-[9px] text-red-600 block mb-0.5 font-body">原文：</span>
+                            <p className="text-[10px] text-red-600 bg-red-50 rounded px-2 py-1.5 line-through decoration-red-400/50 font-body">{rev.original_text}</p>
                           </div>
                         )}
                         {rev.suggested_text && (
                           <div>
-                            <span className="text-[9px] text-emerald-400 block mb-0.5 font-body">建议：</span>
-                            <p className="text-[10px] text-emerald-400 bg-emerald-900/10 rounded px-2 py-1.5 font-body">{rev.suggested_text}</p>
+                            <span className="text-[9px] text-emerald-600 block mb-0.5 font-body">建议：</span>
+                            <p className="text-[10px] text-emerald-600 bg-emerald-50 rounded px-2 py-1.5 font-body">{rev.suggested_text}</p>
                           </div>
                         )}
                       </div>
-                    )) : <div className="text-center py-12 text-[11px] text-slate-500 font-body">{isReviewing ? '等待风险分析完成...' : '暂无修订建议'}</div>
+                    )) : <div className="text-center py-12 text-[11px] text-ink-400 font-body">{isReviewing ? '等待风险分析完成...' : '暂无修订建议'}</div>
                   )}
 
                   {activeRightTab === 'conclusion' && (
                     conclusion?.overall_assessment ? (
                       <div className="space-y-3">
-                        <div className="rounded-lg bg-navy-800/50 border border-navy-700/30 p-3">
-                          <h4 className="text-[11px] font-semibold text-gold-300 mb-1.5 flex items-center gap-1.5 font-body"><HelpCircle size={12} /> 整体评估</h4>
-                          <p className="text-[11px] text-slate-300 leading-relaxed font-body">{conclusion.overall_assessment}</p>
+                        <div className="rounded-lg bg-white border border-ink-200 p-3">
+                          <h4 className="text-[11px] font-semibold text-blue-600 mb-1.5 flex items-center gap-1.5 font-body"><HelpCircle size={12} /> 整体评估</h4>
+                          <p className="text-[11px] text-ink-700 leading-relaxed font-body">{conclusion.overall_assessment}</p>
                         </div>
                         {conclusion.key_findings?.length && (
                           <div>
-                            <h4 className="text-[11px] font-semibold text-slate-300 mb-1.5 font-body">关键发现</h4>
+                            <h4 className="text-[11px] font-semibold text-ink-800 mb-1.5 font-body">关键发现</h4>
                             <ul className="space-y-1">
-                              {conclusion.key_findings.map((f, i) => <li key={i} className="text-[10px] text-slate-400 flex items-start gap-1.5 font-body"><span className="text-amber-400 mt-0.5">•</span>{f}</li>)}
+                              {conclusion.key_findings.map((f, i) => <li key={i} className="text-[10px] text-ink-600 flex items-start gap-1.5 font-body"><span className="text-amber-500 mt-0.5">•</span>{f}</li>)}
                             </ul>
                           </div>
                         )}
                         {conclusion.must_fix_before_sign?.length && (
                           <div>
-                            <h4 className="text-[11px] font-semibold text-red-400 mb-1.5 font-body">签署前必须修复</h4>
+                            <h4 className="text-[11px] font-semibold text-red-600 mb-1.5 font-body">签署前必须修复</h4>
                             <ul className="space-y-1">
-                              {conclusion.must_fix_before_sign.map((f, i) => <li key={i} className="text-[10px] text-red-400 flex items-start gap-1.5 font-body"><AlertCircle size={10} className="mt-0.5 flex-shrink-0" />{f}</li>)}
+                              {conclusion.must_fix_before_sign.map((f, i) => <li key={i} className="text-[10px] text-red-600 flex items-start gap-1.5 font-body"><AlertCircle size={10} className="mt-0.5 flex-shrink-0" />{f}</li>)}
                             </ul>
                           </div>
                         )}
                         {conclusion.negotiation_priority?.length && (
                           <div>
-                            <h4 className="text-[11px] font-semibold text-amber-400 mb-1.5 font-body">谈判优先级</h4>
+                            <h4 className="text-[11px] font-semibold text-amber-600 mb-1.5 font-body">谈判优先级</h4>
                             <ol className="space-y-1 list-decimal list-inside">
-                              {conclusion.negotiation_priority.map((f, i) => <li key={i} className="text-[10px] text-slate-400 font-body">{f}</li>)}
+                              {conclusion.negotiation_priority.map((f, i) => <li key={i} className="text-[10px] text-ink-600 font-body">{f}</li>)}
                             </ol>
                           </div>
                         )}
                       </div>
-                    ) : <div className="text-center py-12 text-[11px] text-slate-500 font-body">{isReviewing ? '等待审查完成...' : '暂无审查结论'}</div>
+                    ) : <div className="text-center py-12 text-[11px] text-ink-400 font-body">{isReviewing ? '等待审查完成...' : '暂无审查结论'}</div>
                   )}
                 </div>
               </aside>
@@ -612,11 +612,11 @@ export default function DocumentUpload() {
 
             {/* 底部报告区域 */}
             {reportSections && Object.keys(reportSections).length > 0 && (
-              <div className="h-44 border-t border-navy-700/30 bg-navy-900/50 flex-shrink-0">
+              <div className="h-44 border-t border-ink-200 bg-ink-50/30 flex-shrink-0">
                 <div className="h-full flex flex-col">
-                  <div className="h-9 border-b border-navy-700/30 flex items-center justify-between px-4 flex-shrink-0">
-                    <div className="flex items-center gap-2"><FileCheck size={13} className="text-slate-400" /><span className="text-[11px] font-medium text-slate-400 font-body">审查报告</span></div>
-                    <button onClick={handleExportReport} className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-300 font-body"><Eye size={10} /> 导出完整报告</button>
+                  <div className="h-9 border-b border-ink-200 flex items-center justify-between px-4 flex-shrink-0">
+                    <div className="flex items-center gap-2"><FileCheck size={13} className="text-ink-600" /><span className="text-[11px] font-medium text-ink-500 font-body">审查报告</span></div>
+                    <button onClick={handleExportReport} className="flex items-center gap-1 text-[10px] text-ink-500 hover:text-ink-700 font-body"><Eye size={10} /> 导出完整报告</button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
                     <div className="grid grid-cols-5 gap-3 h-full">
@@ -628,13 +628,13 @@ export default function DocumentUpload() {
                         { key: 'conclusion' as const, num: '五', title: '结论与建议' },
                       ].map(sec => (
                         <div key={sec.key} className="space-y-1.5 min-h-0">
-                          <h4 className="text-[10px] font-semibold text-slate-300 flex items-center gap-1 font-body">
-                            <span className="w-3.5 h-3.5 rounded bg-navy-800/50 text-gold-300 flex items-center justify-center text-[8px]">{sec.num}</span>
+                          <h4 className="text-[10px] font-semibold text-ink-800 flex items-center gap-1 font-body">
+                            <span className="w-3.5 h-3.5 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[8px]">{sec.num}</span>
                             <span className="truncate">{sec.title}</span>
                           </h4>
                           <ul className="space-y-1 overflow-y-auto max-h-[calc(100%-24px)]">
                             {(reportSections[sec.key] || ['--']).slice(0, 6).map((item, i) => (
-                              <li key={i} className="text-[9px] text-slate-400 leading-relaxed line-clamp-2 list-disc list-inside font-body">{item}</li>
+                              <li key={i} className="text-[9px] text-ink-600 leading-relaxed line-clamp-2 list-disc list-inside font-body">{item}</li>
                             ))}
                           </ul>
                         </div>
@@ -647,12 +647,12 @@ export default function DocumentUpload() {
 
             {/* 审查进度条 */}
             {isReviewing && (
-              <div className="h-10 border-t border-navy-700/30 flex items-center justify-between px-4 bg-navy-950 flex-shrink-0">
-                <div className="flex items-center gap-2 text-xs text-slate-400 font-body">
-                  <Loader2 size={14} className="animate-spin text-gold-300" />
-                  <span>当前节点：<span className="text-gold-300 font-medium">{NODE_LABELS[currentNode] || currentNode || '准备中'}</span></span>
+              <div className="h-10 border-t border-ink-200 flex items-center justify-between px-4 bg-white flex-shrink-0">
+                <div className="flex items-center gap-2 text-xs text-ink-500 font-body">
+                  <Loader2 size={14} className="animate-spin text-blue-600" />
+                  <span>当前节点：<span className="text-blue-600 font-medium">{NODE_LABELS[currentNode] || currentNode || '准备中'}</span></span>
                 </div>
-                <button onClick={handleStop} className="text-xs px-3 py-1.5 rounded-lg border border-red-800/30 text-red-400 hover:bg-red-900/20 flex items-center gap-1 font-body"><StopCircle size={12} /> 停止审查</button>
+                <button onClick={handleStop} className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 flex items-center gap-1 font-body"><StopCircle size={12} /> 停止审查</button>
               </div>
             )}
           </div>

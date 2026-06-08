@@ -33,17 +33,17 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
   const steps = RECOMMENDED_STEPS[scenarioType || ''] || RECOMMENDED_STEPS['租赁']
 
   return (
-    <aside className="w-72 border-l border-navy-700/30 flex-shrink-0 overflow-y-auto bg-navy-900/50 font-body">
+    <aside className="w-72 border-l border-ink-200 bg-ink-50/30 overflow-y-auto font-body">
       <div className="p-4 space-y-4">
         {/* 快捷问题 */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Zap size={13} className="text-gold-400" />
-              <span className="text-xs font-semibold text-slate-300">快捷问题</span>
+              <Zap size={13} className="text-blue-500" />
+              <span className="text-xs font-semibold text-ink-700">快捷问题</span>
             </div>
             <button onClick={() => setActiveSection(activeSection === 'quick' ? null : 'quick')}
-              className={`text-[10px] text-gold-400 hover:text-gold-300 transition-colors`}>
+              className={`text-[10px] text-blue-600 hover:text-blue-700 transition-colors`}>
               {activeSection === 'quick' ? '收起' : '展开'}
             </button>
           </div>
@@ -51,7 +51,7 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
             <div className="flex flex-wrap gap-1.5">
               {(quickQuestions.length > 0 ? quickQuestions : ['押金不退', '借款纠纷', '劳动合同', '合规咨询']).map((q, i) => (
                 <button key={i} onClick={() => onQuickQuestionClick?.(q)}
-                  className="px-2.5 py-1 rounded-full border border-navy-700/30 text-[10px] text-slate-400 hover:text-gold-300 hover:border-gold-400/30 hover:bg-gold-400/5 transition-all">
+                  className="px-2.5 py-1 rounded-full border border-ink-200 text-[10px] text-ink-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all">
                   {q}
                 </button>
               ))}
@@ -60,13 +60,13 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
         </section>
 
         {/* 常见场景 */}
-        <section className="pt-3 border-t border-navy-700/30">
+        <section className="pt-3 border-t border-ink-200">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Lightbulb size={13} className="text-gold-400" />
-              <span className="text-xs font-semibold text-slate-300">常见场景</span>
+              <Lightbulb size={13} className="text-blue-500" />
+              <span className="text-xs font-semibold text-ink-700">常见场景</span>
             </div>
-            <button className="flex items-center gap-0.5 text-[10px] text-gold-400 hover:text-gold-300">
+            <button className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-700">
               更多 <ChevronRight size={10} />
             </button>
           </div>
@@ -75,15 +75,15 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
               <button key={i} onClick={() => onQuickQuestionClick?.(s.desc)}
                 className={`w-full flex items-center gap-2.5 p-2 rounded-lg text-left group transition-all ${
                   scenarioType && s.keywords.includes(scenarioType)
-                    ? 'bg-emerald-900/20 border border-emerald-500/20'
-                    : 'hover:bg-navy-800/50'
+                    ? 'bg-blue-50 border border-blue-200 text-blue-600'
+                    : 'hover:bg-ink-50'
                 }`}>
                 <span className="text-base">{s.icon}</span>
                 <div className="min-w-0 flex-1">
-                  <p className={`text-[11px] font-medium truncate ${scenarioType && s.keywords.includes(scenarioType) ? 'text-emerald-300' : 'text-slate-300 group-hover:text-slate-200'}`}>
+                  <p className={`text-[11px] font-medium truncate ${scenarioType && s.keywords.includes(scenarioType) ? 'text-blue-600' : 'text-ink-700 group-hover:text-ink-900'}`}>
                     {s.label}
                   </p>
-                  <p className="text-[9px] text-slate-400 truncate">{s.desc}</p>
+                  <p className="text-[9px] text-ink-400 truncate">{s.desc}</p>
                 </div>
               </button>
             ))}
@@ -91,18 +91,18 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
         </section>
 
         {/* 推荐步骤 */}
-        <section className="pt-3 border-t border-navy-700/30">
+        <section className="pt-3 border-t border-ink-200">
           <div className="flex items-center gap-2 mb-3">
-            <Star size={13} className="text-gold-400" />
-            <span className="text-xs font-semibold text-slate-300">推荐下一步</span>
+            <Star size={13} className="text-blue-500" />
+            <span className="text-xs font-semibold text-ink-700">推荐下一步</span>
           </div>
           <div className="space-y-1.5">
             {steps.map((step, i) => (
               <button key={i} onClick={() => onQuickQuestionClick?.(step)}
-                className="w-full flex items-start gap-2 p-2 rounded-lg hover:bg-navy-800/50 text-left group transition-all">
-                <span className="w-4 h-4 rounded-full bg-gold-400/10 text-gold-300 text-[9px] flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-                <span className="text-[10px] text-slate-400 leading-relaxed group-hover:text-slate-300 line-clamp-2 flex-1">{step}</span>
-                <ChevronRight size={10} className="text-slate-500 mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                className="w-full flex items-start gap-2 p-2 rounded-lg hover:bg-ink-50 text-left group transition-all">
+                <span className="w-4 h-4 rounded-full bg-blue-50 text-blue-600 text-[9px] flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                <span className="text-[10px] text-ink-500 leading-relaxed group-hover:text-ink-700 line-clamp-2 flex-1">{step}</span>
+                <ChevronRight size={10} className="text-ink-400 mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             ))}
           </div>
@@ -110,37 +110,37 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
 
         {/* 风险提示 */}
         {(riskWarnings.length > 0 || true) && (
-          <section className="pt-3 border-t border-navy-700/30">
+          <section className="pt-3 border-t border-ink-200">
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle size={13} className="text-red-400" />
-              <span className="text-xs font-semibold text-slate-300">风险提示</span>
+              <AlertTriangle size={13} className="text-red-500" />
+              <span className="text-xs font-semibold text-ink-700">风险提示</span>
             </div>
             {riskWarnings.length > 0 ? riskWarnings.map((risk, i) => (
-              <div key={i} className="rounded-lg bg-red-900/20 border border-red-500/20 p-2.5">
-                <p className="text-[10px] text-red-300 leading-relaxed">{risk}</p>
+              <div key={i} className="rounded-lg bg-red-50 border border-red-200 p-2.5">
+                <p className="text-[10px] text-red-600 leading-relaxed">{risk}</p>
               </div>
             )) : (
-              <div className="rounded-lg bg-red-900/20 border border-red-500/20 p-2.5">
-                <p className="text-[10px] text-red-300 leading-relaxed">⚠️ 法院时效一般为3年，自权利人知道或应当知道权利被侵害时起算。请及时主张权利，避免超过诉讼时效。</p>
+              <div className="rounded-lg bg-red-50 border border-red-200 p-2.5">
+                <p className="text-[10px] text-red-600 leading-relaxed">⚠️ 法院时效一般为3年，自权利人知道或应当知道权利被侵害时起算。请及时主张权利，避免超过诉讼时效。</p>
               </div>
             )}
           </section>
         )}
 
         {/* 相关法条 */}
-        <section className="pt-3 border-t border-navy-700/30">
+        <section className="pt-3 border-t border-ink-200">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <BookOpen size={13} className="text-gold-400" />
-              <span className="text-xs font-semibold text-slate-300">相关法条</span>
+              <BookOpen size={13} className="text-blue-500" />
+              <span className="text-xs font-semibold text-ink-700">相关法条</span>
             </div>
-            <button className="flex items-center gap-0.5 text-[10px] text-gold-400 hover:text-gold-300">
+            <button className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-700">
               更多 <ChevronRight size={10} />
             </button>
           </div>
           {relatedLaws.length > 0 ? relatedLaws.map((law, i) => (
-            <div key={i} className="rounded-lg bg-navy-800/50 border border-navy-700/30 p-2.5">
-              <p className="text-[10px] text-slate-300 leading-relaxed">{law}</p>
+            <div key={i} className="rounded-lg bg-ink-50 border border-ink-200 p-2.5">
+              <p className="text-[10px] text-ink-600 leading-relaxed">{law}</p>
             </div>
           )) : (
             <div className="space-y-1.5">
@@ -149,8 +149,8 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
                 '《中华人民共和国民法典》第五百七十九条',
                 '《中华人民共和国民法典》第五百八十条',
               ].map((law, i) => (
-                <div key={i} className="rounded-lg bg-navy-800/50 border border-navy-700/30 p-2">
-                  <p className="text-[10px] text-slate-400 truncate">{law}</p>
+                <div key={i} className="rounded-lg bg-ink-50 border border-ink-200 p-2">
+                  <p className="text-[10px] text-ink-500 truncate">{law}</p>
                 </div>
               ))}
             </div>
@@ -158,44 +158,44 @@ export default function RightPanel({ onQuickQuestionClick }: RightPanelProps) {
         </section>
 
         {/* 法律术语解释 */}
-        <section className="pt-3 border-t border-navy-700/30">
+        <section className="pt-3 border-t border-ink-200">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <HelpCircle size={13} className="text-cyan-400" />
-              <span className="text-xs font-semibold text-slate-300">法律术语解释</span>
+              <HelpCircle size={13} className="text-cyan-500" />
+              <span className="text-xs font-semibold text-ink-700">法律术语解释</span>
             </div>
-            <button className="flex items-center gap-0.5 text-[10px] text-gold-400 hover:text-gold-300">
+            <button className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-700">
               更多 <ChevronRight size={10} />
             </button>
           </div>
           {termExplanations.length > 0 ? termExplanations.map((t, i) => (
-            <div key={i} className="rounded-lg bg-cyan-900/20 border border-cyan-500/20 p-2.5">
-              <p className="text-[10px] font-medium text-cyan-300 mb-0.5">{t.term}</p>
-              <p className="text-[10px] text-slate-400 leading-relaxed">{t.explanation}</p>
+            <div key={i} className="rounded-lg bg-cyan-50 border border-cyan-200 p-2.5">
+              <p className="text-[10px] font-medium text-cyan-700 mb-0.5">{t.term}</p>
+              <p className="text-[10px] text-ink-500 leading-relaxed">{t.explanation}</p>
             </div>
           )) : (
-            <div className="rounded-lg bg-cyan-900/20 border border-cyan-500/20 p-2.5">
-              <p className="text-[10px] text-slate-400 leading-relaxed">在民事法律过程中，因各种老化或疏忽导致使用过期的证据。</p>
+            <div className="rounded-lg bg-cyan-50 border border-cyan-200 p-2.5">
+              <p className="text-[10px] text-ink-500 leading-relaxed">在民事法律过程中，因各种老化或疏忽导致使用过期的证据。</p>
             </div>
           )}
         </section>
 
         {/* 合规指南 */}
-        <section className="pt-3 border-t border-navy-700/30">
+        <section className="pt-3 border-t border-ink-200">
           <div className="flex items-center gap-2 mb-3">
-            <Shield size={13} className="text-emerald-400" />
-            <span className="text-xs font-semibold text-slate-300">合规指南</span>
+            <Shield size={13} className="text-emerald-500" />
+            <span className="text-xs font-semibold text-ink-700">合规指南</span>
           </div>
-          <div className="rounded-lg bg-emerald-900/20 border border-emerald-500/20 p-2.5">
-            <p className="text-[10px] text-slate-400 leading-relaxed">在民事法律过程中，因各种老化或疏忽导致使用过期的证据。</p>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2.5">
+            <p className="text-[10px] text-ink-500 leading-relaxed">在民事法律过程中，因各种老化或疏忽导致使用过期的证据。</p>
           </div>
         </section>
       </div>
 
       {/* 收起按钮 */}
-      <div className="sticky bottom-0 pt-3 pb-4 px-4 border-t border-navy-700/30 bg-navy-900/80 backdrop-blur-sm">
+      <div className="sticky bottom-0 pt-3 pb-4 px-4 border-t border-ink-200 bg-white/80 backdrop-blur-sm">
         <button onClick={() => setActiveSection(null)}
-          className="w-full flex items-center justify-center gap-1 text-[10px] text-slate-400 hover:text-slate-300 transition-colors py-1">
+          className="w-full flex items-center justify-center gap-1 text-[10px] text-ink-400 hover:text-ink-600 transition-colors py-1">
           收起 <svg xmlns="http://www.w3.org/2000/svg" width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
         </button>
       </div>

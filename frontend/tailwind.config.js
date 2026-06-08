@@ -33,10 +33,22 @@ module.exports = {
         slate: {
           950: '#020617',
         },
+        azure: {
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
+        },
       },
       fontFamily: {
-        display: ['Playfair Display', 'Noto Serif SC', 'Georgia', 'serif'],
-        body: ['DM Sans', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+        display: ['Outfit', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+        body: ['Plus Jakarta Sans', 'Noto Sans SC', 'system-ui', 'sans-serif'],
       },
       animation: {
         float: 'float 10s ease-in-out infinite',
@@ -45,9 +57,9 @@ module.exports = {
         'fade-in': 'fadeIn 0.6s ease-out',
         'slide-up': 'slideUp 0.5s ease-out',
         'slide-in-left': 'slideInLeft 0.4s ease-out',
-        'shimmer': 'shimmer 2s linear infinite',
+        shimmer: 'shimmer 2s linear infinite',
         'glow-pulse': 'glowPulse 3s ease-in-out infinite',
-        'grain': 'grain 8s steps(10) infinite',
+        grain: 'grain 8s steps(10) infinite',
       },
       keyframes: {
         float: {

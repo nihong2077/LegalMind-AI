@@ -61,11 +61,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-850 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/20 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Decorative background orbs */}
-      <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-gold-500/10 to-navy-700/20 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-15%] right-[-8%] w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-navy-600/15 to-gold-400/8 blur-[140px] pointer-events-none" />
-      <div className="absolute top-[40%] right-[15%] w-[300px] h-[300px] rounded-full bg-gradient-to-br from-gold-300/5 to-transparent blur-[100px] pointer-events-none animate-aura-pulse" />
+      <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-400/15 to-indigo-300/10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] right-[-8%] w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-indigo-400/12 to-blue-300/8 blur-[140px] pointer-events-none" />
+      <div className="absolute top-[40%] right-[15%] w-[300px] h-[300px] rounded-full bg-gradient-to-br from-blue-300/8 to-transparent blur-[100px] pointer-events-none animate-aura-pulse" />
 
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.98 }}
@@ -80,11 +80,11 @@ export default function LoginPage() {
           transition={{ duration: 0.5, delay: 0.15 }}
           className="flex flex-col items-center mb-8"
         >
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-500 flex items-center justify-center mb-4 shadow-lg shadow-gold-500/20">
-            <Scale size={28} className="text-navy-900" />
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
+            <Scale size={28} className="text-white" />
           </div>
-          <h1 className="text-3xl font-display text-gold-300 tracking-wide">LegalMind AI</h1>
-          <p className="text-sm text-navy-300/60 mt-1.5 font-body">智能司法协作平台</p>
+          <h1 className="text-3xl font-display text-ink-900 tracking-wide">LegalMind AI</h1>
+          <p className="text-sm text-ink-400 mt-1.5 font-body">智能司法协作平台</p>
         </motion.div>
 
         {/* Login / Register Card */}
@@ -94,12 +94,12 @@ export default function LoginPage() {
           transition={{ duration: 0.5, delay: 0.25 }}
           className="glass-card-static p-8"
         >
-          <h2 className="text-lg font-display text-slate-100 mb-1">{isRegister ? '注册' : '登录'}</h2>
-          <p className="text-xs text-navy-300/50 mb-6 font-body">{isRegister ? '创建您的账号' : '使用您的账号登录系统'}</p>
+          <h2 className="text-lg font-display text-ink-900 mb-1">{isRegister ? '注册' : '登录'}</h2>
+          <p className="text-xs text-ink-400 mb-6 font-body">{isRegister ? '创建您的账号' : '使用您的账号登录系统'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs text-navy-200/70 mb-1.5 block font-body">用户名</label>
+              <label className="text-xs text-ink-500 mb-1.5 block font-body">用户名</label>
               <input
                 type="text"
                 value={username}
@@ -111,7 +111,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="text-xs text-navy-200/70 mb-1.5 block font-body">密码</label>
+              <label className="text-xs text-ink-500 mb-1.5 block font-body">密码</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -123,7 +123,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-300/40 hover:text-gold-300 transition-colors duration-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-300 hover:text-blue-500 transition-colors duration-300"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -137,7 +137,7 @@ export default function LoginPage() {
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.3 }}
               >
-                <label className="text-xs text-navy-200/70 mb-1.5 block font-body">确认密码</label>
+                <label className="text-xs text-ink-500 mb-1.5 block font-body">确认密码</label>
                 <input
                   type="password"
                   value={confirmPassword}
@@ -152,7 +152,7 @@ export default function LoginPage() {
               <motion.div
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 backdrop-blur-sm"
+                className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
               >
                 {error}
               </motion.div>
@@ -161,7 +161,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={!username.trim() || !password.trim() || loading || (isRegister && !confirmPassword.trim())}
-              className="gold-btn w-full flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+              className="primary-btn w-full flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}
               {loading ? (isRegister ? '注册中...' : '登录中...') : (isRegister ? '注册' : '登录')}
@@ -171,14 +171,14 @@ export default function LoginPage() {
           <div className="mt-5 text-center">
             <button
               onClick={() => { setIsRegister(!isRegister); setError('') }}
-              className="text-xs text-gold-300/70 hover:text-gold-300 transition-colors duration-300"
+              className="text-xs text-blue-500/70 hover:text-blue-600 transition-colors duration-300"
             >
               {isRegister ? '已有账号？去登录' : '没有账号？立即注册'}
             </button>
           </div>
 
           {!isRegister && (
-            <p className="text-[10px] text-navy-300/30 text-center mt-4 font-body">
+            <p className="text-[10px] text-ink-300 text-center mt-4 font-body">
               默认账号：admin / admin
             </p>
           )}
