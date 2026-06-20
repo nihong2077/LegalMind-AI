@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["gateway"])
 
+# 请求模型
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 CIRCUIT_BREAKER_PREFIX = "legalmind:cb:"
 SSE_PING_INTERVAL = 15
 
@@ -201,13 +206,13 @@ async def check_rate_limit(request: Request, user: dict = Depends(get_current_us
 
 
 @router.post("/auth/token")
-async def login(username: str = Query(...), password: str = Query(...)):
-    if username != "admin" or password != "admin":
+async def login(request: LoginRequest):
+    if request.username != "admin" or request.password != "admin":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
-    token = create_access_token(data={"sub": username})
+    token = create_access_token(data={"sub": request.username})
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -373,30 +378,39 @@ async def chat_stream(
 
     llm = get_llm_client()
 
-    # RAG 检索：提取用户最后一条消息，检索相关法律知识
+    # 提取用户最后一条消息用于 RAG 检索
     user_query = ""
     for m in reversed(messages):
         if m.get("role") == "user":
             user_query = m.get("content", "")
             break
 
-    rag_context = ""
-    if user_query:
-        try:
-            from ..services.legal.rag_retriever import retrieve_legal_knowledge, format_retrieval_context
-            fast_llm = llm.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=1024)
-            rag_results = await retrieve_legal_knowledge(
-                query=user_query, llm=fast_llm, top_k=6, use_hyde=True, domain="law",
-            )
-            rag_context = format_retrieval_context(rag_results)
-            if rag_context:
-                # 将检索结果注入系统提示词
-                messages[0]["content"] = LEGAL_SYSTEM_PROMPT + "\n\n" + rag_context
-                logger.info("RAG 检索完成，注入 %d 条法律知识", len(rag_results))
-        except Exception as e:
-            logger.warning("RAG 检索失败，降级为纯 LLM 回答: %s", e)
-
     async def event_generator():
+        # 阶段1: RAG 检索（前端可展示"正在检索法律知识…"）
+        rag_context = ""
+        if user_query:
+            yield {
+                "event": "status",
+                "data": json.dumps({"phase": "retrieving", "message": "正在检索法律知识…"}, ensure_ascii=False),
+            }
+            try:
+                from ..services.legal.rag_retriever import retrieve_legal_knowledge, format_retrieval_context
+                fast_llm = llm.get_chat_model(model="deepseek-flash", temperature=0.3, max_tokens=1024)
+                rag_results = await retrieve_legal_knowledge(
+                    query=user_query, llm=fast_llm, top_k=6, use_hyde=True, domain="law",
+                )
+                rag_context = format_retrieval_context(rag_results)
+                if rag_context:
+                    messages[0]["content"] = LEGAL_SYSTEM_PROMPT + "\n\n" + rag_context
+                    logger.info("RAG 检索完成，注入 %d 条法律知识", len(rag_results))
+            except Exception as e:
+                logger.warning("RAG 检索失败，降级为纯 LLM 回答: %s", e)
+
+        # 阶段2: LLM 流式生成
+        yield {
+            "event": "status",
+            "data": json.dumps({"phase": "generating", "message": "正在生成回答…"}, ensure_ascii=False),
+        }
         full_content = ""
         try:
             async for chunk in llm.chat_stream(

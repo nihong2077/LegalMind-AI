@@ -130,6 +130,7 @@ type ChatStreamEvent =
   | { type: 'chunk'; data: StreamChunk }
   | { type: 'done'; data: StreamDone }
   | { type: 'error'; data: StreamError }
+  | { type: 'status'; data: { phase: string; message: string } }
 
 export async function* chatStream(
   messages: ChatMessage[],
@@ -164,6 +165,7 @@ export async function* chatStream(
     message: (p) => ({ type: 'chunk', data: p as StreamChunk }),
     done: (p) => ({ type: 'done', data: p as StreamDone }),
     error: (p) => ({ type: 'error', data: p as StreamError }),
+    status: (p) => ({ type: 'status', data: p as { phase: string; message: string } }),
   })
 }
 

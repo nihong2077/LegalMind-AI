@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
+import JudgeVerdictCard from '@/components/JudgeVerdictCard'
 import {
   Scale, Play, FileText, AlertTriangle, CheckCircle, Loader2,
   StopCircle, Download,
@@ -360,6 +361,23 @@ export default function CourtPage() {
     let currentNode = ''
     let currentRoundNum = 0
 
+    // 流式渲染节流：用 rAF 保证每帧最多更新一次 DOM
+    let rafId: number | null = null
+    let pendingUpdate: (() => void) | null = null
+    const flushUpdate = () => {
+      if (pendingUpdate) {
+        pendingUpdate()
+        pendingUpdate = null
+      }
+      rafId = null
+    }
+    const scheduleUpdate = (update: () => void) => {
+      pendingUpdate = update
+      if (!rafId) {
+        rafId = requestAnimationFrame(flushUpdate)
+      }
+    }
+
     try {
       for await (const event of debateStream({
         case_description: caseDescription,
@@ -395,18 +413,23 @@ export default function CourtPage() {
           setCurrentPhaseLabel(getPhaseLabel(chunk.node, currentRoundNum))
           setConfidence(prev => Math.min(95, prev + Math.random() * 2))
 
-          // 仅辩论发言节点实时更新消息列表
+          // 仅辩论发言节点实时更新消息列表（rAF 节流）
           if (isDebateSpeechNode(currentNode)) {
-            const cleanedContent = cleanMarkdown(currentContent)
-            setMessages(prev => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.node === currentNode && last.role === currentRole) {
-                updated[updated.length - 1] = { ...last, content: cleanedContent }
-              } else {
-                updated.push({ id: `${Date.now()}-${Math.random()}`, role: detectRole(chunk.node), content: cleanedContent, node: currentNode, round: currentRoundNum, timestamp: new Date() })
-              }
-              return updated
+            const capturedContent = cleanMarkdown(currentContent)
+            const capturedNode = currentNode
+            const capturedRole = currentRole
+            const capturedRound = currentRoundNum
+            scheduleUpdate(() => {
+              setMessages(prev => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.node === capturedNode && last.role === capturedRole) {
+                  updated[updated.length - 1] = { ...last, content: capturedContent }
+                } else {
+                  updated.push({ id: `${Date.now()}-${Math.random()}`, role: capturedRole, content: capturedContent, node: capturedNode, round: capturedRound, timestamp: new Date() })
+                }
+                return updated
+              })
             })
           }
 
@@ -431,6 +454,7 @@ export default function CourtPage() {
 
         } else if (event.type === 'done') {
           if (currentContent && currentNode && isDebateSpeechNode(currentNode)) {
+            if (rafId) { cancelAnimationFrame(rafId); rafId = null; pendingUpdate = null }
             setMessages(prev => [...prev, {
               id: `${Date.now()}-${Math.random()}`, role: currentRole,
               content: cleanMarkdown(currentContent), node: currentNode, round: currentRoundNum, timestamp: new Date(),
@@ -503,8 +527,10 @@ export default function CourtPage() {
         }
       }
     } catch (e) {
+      if (rafId) cancelAnimationFrame(rafId)
       if ((e as Error).name !== 'AbortError') setError(`辩论过程出错: ${(e as Error).message}`)
     } finally {
+      if (rafId) cancelAnimationFrame(rafId)
       setIsStreaming(false)
       abortRef.current = null
     }
@@ -702,7 +728,11 @@ export default function CourtPage() {
                                 {msg.round && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">第{msg.round}轮</span>}
                                 <span className="text-[10px] text-slate-400 ml-auto">{msg.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                               </div>
-                              <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                              {msg.role === 'judge' ? (
+                                <JudgeVerdictCard content={msg.content} />
+                              ) : (
+                                <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                              )}
                             </div>
                           </div>
                         </motion.div>

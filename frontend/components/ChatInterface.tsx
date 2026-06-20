@@ -49,12 +49,32 @@ function parseStructured(content: string): ParsedContent | null {
 }
 
 function StructuredReply({ content, isStreaming }: { content: string; isStreaming: boolean }) {
-  const parsed = parseStructured(content)
   const [copied, setCopied] = useState(false)
 
-  if (!parsed && !isStreaming) return (
+  // 流式过程中直接显示纯文本，避免正则解析不完整内容导致"一团一团"跳变
+  if (isStreaming) return (
     <div className="glass-card-static rounded-2xl rounded-tl-sm overflow-hidden">
       <div className="p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{content}</div>
+      <div className="flex items-center gap-2 px-4 pb-3">
+        <div className="flex gap-1">
+          {[0,150,300].map(d => <span key={d} className="w-1 h-1 bg-blue-600 rounded-full animate-pulse" style={{animationDelay: `${d}ms`}} />)}
+        </div>
+        <span className="text-[10px] text-slate-400">正在生成回答...</span>
+      </div>
+    </div>
+  )
+
+  const parsed = parseStructured(content)
+
+  if (!parsed) return (
+    <div className="glass-card-static rounded-2xl rounded-tl-sm overflow-hidden">
+      <div className="p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{content}</div>
+      <div className="px-4 py-2 border-t border-gray-200 flex items-center gap-3">
+        <button onClick={() => { navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
+          {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? '已复制' : '复制'}
+        </button>
+      </div>
     </div>
   )
 
@@ -90,18 +110,9 @@ function StructuredReply({ content, isStreaming }: { content: string; isStreamin
           </div>
         )}
 
-        {isStreaming && (
-          <div className="flex items-center gap-2 pt-1">
-            <div className="flex gap-1">
-              {[0,150,300].map(d => <span key={d} className="w-1 h-1 bg-blue-600 rounded-full animate-pulse" style={{animationDelay: `${d}ms`}} />)}
-            </div>
-            <span className="text-[10px] text-slate-400">正在分析法律依据...</span>
-          </div>
-        )}
       </div>
 
-      {content && !isStreaming && (
-        <div className="px-4 py-2 border-t border-gray-200 flex items-center gap-3">
+      <div className="px-4 py-2 border-t border-gray-200 flex items-center gap-3">
           <button onClick={() => { navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
             className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
             {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? '已复制' : '复制'}
@@ -110,14 +121,13 @@ function StructuredReply({ content, isStreaming }: { content: string; isStreamin
             <MessageSquare size={11} /> 引用回复
           </button>
         </div>
-      )}
     </div>
   )
 }
 
 export default function ChatInterface() {
   const {
-    messages, isStreaming, authed, error, sendMessage, stopStreaming,
+    messages, isStreaming, streamingPhase, authed, error, sendMessage, stopStreaming,
     checkAuth, sessions, currentSessionId, createSession, switchSession, deleteSession,
     uploadAndAnalyze,
   } = useChatStore()
@@ -300,7 +310,9 @@ export default function ChatInterface() {
             <div className="glass-card-static px-4 py-2.5 rounded-2xl rounded-tl-sm">
               <div className="flex items-center gap-2">
                 {[0,120,240].map(d => <span key={d} className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
-                <span className="text-[10px] text-slate-400">AI 正在分析...</span>
+                <span className="text-[10px] text-slate-400">
+                  {streamingPhase === 'retrieving' ? '正在检索法律知识…' : streamingPhase === 'generating' ? '正在生成回答…' : 'AI 正在分析...'}
+                </span>
               </div>
             </div>
           </div>

@@ -198,6 +198,7 @@ interface ChatState {
   cases: Case[]
   documents: Document[]
   isStreaming: boolean
+  streamingPhase: string | null  // 'retrieving' | 'generating' | null
   sidebarCollapsed: boolean
   authed: boolean
   error: string | null
@@ -238,6 +239,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cases: [],
   documents: [],
   isStreaming: false,
+  streamingPhase: null,
   sidebarCollapsed: false,
   authed: false,
   error: null,
@@ -367,7 +369,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().addMessage({ role: 'assistant', content: '', agent: 'LegalMind AI' })
 
     const abortController = new AbortController()
-    set({ isStreaming: true, error: null, abortController })
+    set({ isStreaming: true, streamingPhase: null, error: null, abortController })
 
     const recentMessages = state.messages
       .filter((m) => m.role !== 'system')
@@ -380,37 +382,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // addMessage 已将用户消息加入 state.messages，recentMessages 已包含它，无需再 push
 
     let fullContent = ''
+    // 流式渲染节流：用 rAF 保证每帧最多更新一次 DOM，避免"一团一团"出现
+    let rafId: number | null = null
+    let pendingContent = ''
+    const flushRender = () => {
+      if (pendingContent !== '') {
+        get().updateLastAssistantMessage(pendingContent)
+        pendingContent = ''
+      }
+      rafId = null
+    }
+    const scheduleRender = (content: string) => {
+      pendingContent = content
+      if (!rafId) {
+        rafId = requestAnimationFrame(flushRender)
+      }
+    }
 
     try {
       for await (const event of chatStream(chatMessages, model, abortController.signal)) {
-        if (event.type === 'chunk') {
+        if (event.type === 'status') {
+          set({ streamingPhase: event.data.phase })
+        } else if (event.type === 'chunk') {
           const chunk = event.data as { content: string; role: string }
           fullContent += chunk.content
-          get().updateLastAssistantMessage(fullContent)
+          scheduleRender(fullContent)
         } else if (event.type === 'done') {
+          // 取消待渲染帧，立即刷新最终内容
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null }
           const done = event.data as { content: string; role: string; finish_reason: string }
           if (done.content) {
             fullContent = done.content
-            get().updateLastAssistantMessage(fullContent)
           }
+          get().updateLastAssistantMessage(fullContent)
           // 流式结束后更新右侧面板数据
           const finalMsgs = get().messages
           set({ rightPanelData: buildRightPanelData(finalMsgs) })
           get().saveCurrentSession()
         } else if (event.type === 'error') {
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null }
           const err = event.data as { error: string; message: string }
           get().updateLastAssistantMessage(`⚠️ ${err.message || 'AI 服务暂时不可用'}`)
           set({ error: err.message })
         }
       }
     } catch (e) {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null }
       if ((e as Error).name !== 'AbortError') {
         get().updateLastAssistantMessage('⚠️ 连接中断，请重试')
         set({ error: (e as Error).message })
       }
     } finally {
+      if (rafId) cancelAnimationFrame(rafId)
       const finalMsgs = get().messages
-      set({ isStreaming: false, abortController: null, rightPanelData: buildRightPanelData(finalMsgs) })
+      set({ isStreaming: false, streamingPhase: null, abortController: null, rightPanelData: buildRightPanelData(finalMsgs) })
       get().saveCurrentSession()
     }
   },
