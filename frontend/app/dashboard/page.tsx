@@ -29,9 +29,12 @@ export default function DashboardPage() {
   function loadLocalCases(): CaseItem[] {
     if (typeof window === 'undefined') return []
     try {
-      const courtRaw = localStorage.getItem('legalmind_court_cases')
-      const chatRaw = localStorage.getItem('legalmind_chat_history')
-      const contractRaw = localStorage.getItem('legalmind_contract_reviews')
+      // 按用户名隔离存储，避免不同账号数据串用
+      const username = localStorage.getItem('legalmind_username')
+      const suffix = username ? `:${username}` : ''
+      const courtRaw = localStorage.getItem(`legalmind_court_cases${suffix}`)
+      const chatRaw = localStorage.getItem(`legalmind_chat_history${suffix}`)
+      const contractRaw = localStorage.getItem(`legalmind_contract_reviews${suffix}`)
       const court: Array<{ id: string; title: string; createdAt: string }> = courtRaw ? JSON.parse(courtRaw) : []
       const chat: Array<{ id: string; title: string; createdAt: string }> = chatRaw ? JSON.parse(chatRaw) : []
       const contract: Array<{ id: string; title: string; createdAt: string }> = contractRaw ? JSON.parse(contractRaw) : []

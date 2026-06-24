@@ -22,6 +22,7 @@ from ..core.redis_client import (
     get_task_status,
 )
 from ..core.security import create_access_token, get_current_user
+from ..core.user_service import authenticate_user, create_user
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,11 @@ router = APIRouter(prefix="/api", tags=["gateway"])
 
 # 请求模型
 class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
     username: str
     password: str
 
@@ -205,15 +211,32 @@ async def check_rate_limit(request: Request, user: dict = Depends(get_current_us
     return user
 
 
+@router.post("/auth/register")
+async def register(request: RegisterRequest):
+    """用户注册：将账号密码存入 Redis，密码使用 PBKDF2 哈希存储。"""
+    try:
+        await create_user(request.username, request.password)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    # 注册成功后直接签发 token，免去用户再次登录
+    token = create_access_token(data={"sub": request.username.strip()})
+    return {"access_token": token, "token_type": "bearer", "username": request.username.strip()}
+
+
 @router.post("/auth/token")
 async def login(request: LoginRequest):
-    if request.username != "admin" or request.password != "admin":
+    """用户登录：从 Redis 验证账号密码。"""
+    user = await authenticate_user(request.username, request.password)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
-    token = create_access_token(data={"sub": request.username})
-    return {"access_token": token, "token_type": "bearer"}
+    token = create_access_token(data={"sub": user["username"]})
+    return {"access_token": token, "token_type": "bearer", "username": user["username"]}
 
 
 @router.post("/tasks")
@@ -339,9 +362,11 @@ async def reset_circuit(name: str, user: dict = Depends(get_current_user)):
 
 LEGAL_SYSTEM_PROMPT = """你是一位专业的中国法律助手。
 
-严格规则：
-- 禁止自我介绍，禁止说"我是……""好的，请提供……""请问您有什么……"等寒暄或引导语
-- 收到用户问题后，立即给出法律分析、结论和建议，第一句话就必须是实质性回答
+核心原则（必须严格遵守）：
+- 必须紧扣用户问题回答，不得偏离用户询问的法律事项
+- 上下文中的【相关法律知识】仅供参考，若与用户问题不相关，禁止引用
+- 禁止自我介绍，禁止寒暄或引导语（如"我是……""好的，请提供……""请问您有什么……"）
+- 收到用户问题后，立即给出法律分析、结论和建议，第一句话必须是实质性回答
 - 禁止反问用户、禁止要求用户提供更多信息
 
 回答要求：
@@ -354,7 +379,8 @@ LEGAL_SYSTEM_PROMPT = """你是一位专业的中国法律助手。
 
 class ChatRequest(BaseModel):
     messages: list[dict]
-    model: str = "gemma4-9b"
+    # 模型默认值与前端保持一致，避免 DeepSeek API 收到不支持的模型名
+    model: str = "deepseek-flash"
     temperature: float = 0.7
     max_tokens: int = 2048
 
@@ -401,7 +427,13 @@ async def chat_stream(
                 )
                 rag_context = format_retrieval_context(rag_results)
                 if rag_context:
-                    messages[0]["content"] = LEGAL_SYSTEM_PROMPT + "\n\n" + rag_context
+                    # 不覆盖 system prompt，而是将 RAG 上下文作为独立的 system 消息追加
+                    # 这样模型能区分"角色设定"和"参考资料"，避免被检索内容带偏
+                    rag_system_msg = {
+                        "role": "system",
+                        "content": f"以下是检索到的相关法律知识，仅供参考。若与用户问题不相关，请忽略：\n\n{rag_context}",
+                    }
+                    messages.insert(1, rag_system_msg)
                     logger.info("RAG 检索完成，注入 %d 条法律知识", len(rag_results))
             except Exception as e:
                 logger.warning("RAG 检索失败，降级为纯 LLM 回答: %s", e)
@@ -940,6 +972,8 @@ class DebateRequest(BaseModel):
     case_description: str
     evidence_summary: str = ""
     task_type: str = "debate"
+    # 是否为补证后重新启动（补证后跳过开庭阶段，直接进入辩论，且不再触发中断）
+    evidence_supplemented: bool = False
 
 
 @router.post("/debate/run")
@@ -974,6 +1008,8 @@ async def run_debate(
         "judge_comments": [],
         "converged": False,
         "convergence_reason": "",
+        "evidence_needed": False,
+        "evidence_supplemented": body.evidence_supplemented,
         "verdict": "",
         "judgment_report": "",
         "plain_language_version": "",
@@ -1029,6 +1065,8 @@ async def stream_debate(
                 "judge_comments": [],
                 "converged": False,
                 "convergence_reason": "",
+                "evidence_needed": False,
+                "evidence_supplemented": body.evidence_supplemented,
                 "verdict": "",
                 "judgment_report": "",
                 "plain_language_version": "",
@@ -1044,6 +1082,23 @@ async def stream_debate(
                 "judge_comment", "judge_verdict", "judgment_report", "plain_language",
             }
 
+            # 累积关键状态：stream_mode="updates" 只返回当前节点输出，需要累积各节点产出的状态
+            # 用于 finalize 的 done 事件和工作流提前结束时补发 done 事件
+            accumulated = {
+                "evidence_sufficient": True,
+                "evidence_needed": False,
+                "interrupt_reason": "",
+                "kfe": {},
+                "legal_knowledge": "",
+                "convergence_reason": "",
+                "verdict": "",
+                "judgment_report": "",
+                "plain_language_version": "",
+                "structured_summary": {},
+                "focus_points": "",
+            }
+            done_sent = False
+
             # 使用 astream（节点级输出）替代 astream_events（token 级事件）
             # stream_mode="updates" 返回 {node_name: output} 字典
             async for chunk in workflow.astream(input_state, stream_mode="updates"):
@@ -1054,6 +1109,14 @@ async def stream_debate(
                     continue
 
                 node_name, output = next(iter(chunk.items()))
+
+                # 累积关键状态字段（stream_mode="updates" 只返回当前节点输出，需累积供 done 事件使用）
+                for _key in ("evidence_sufficient", "evidence_needed", "interrupt_reason",
+                             "kfe", "legal_knowledge", "convergence_reason",
+                             "verdict", "judgment_report", "plain_language_version",
+                             "structured_summary", "focus_points"):
+                    if _key in output:
+                        accumulated[_key] = output[_key]
 
                 # KFE 提取完成 → 发送 metadata
                 if node_name == "extract_kfe" and output.get("kfe"):
@@ -1117,10 +1180,13 @@ async def stream_debate(
 
                 # 最终汇总节点 → 发送 done 事件
                 elif node_name == "finalize":
-                    structured = output.get("structured_summary") or {}
+                    done_sent = True
+                    # finalize 节点的 output 只包含 final_result 和 structured_summary
+                    # verdict/judgment_report 等需要从累积状态中获取
+                    structured = output.get("structured_summary") or accumulated.get("structured_summary") or {}
                     # 确保 structured_summary 中包含 kfe 和法律知识
-                    if not structured.get("kfe_items") and output.get("kfe"):
-                        kfe_raw = output.get("kfe", {})
+                    if not structured.get("kfe_items") and accumulated.get("kfe"):
+                        kfe_raw = accumulated.get("kfe", {})
                         kfe_list = []
                         for k, v in kfe_raw.items():
                             if isinstance(v, dict):
@@ -1134,17 +1200,38 @@ async def stream_debate(
                         "data": json.dumps({
                             "status": "completed",
                             "final_result": output.get("final_result", ""),
-                            "verdict": output.get("verdict", ""),
-                            "judgment_report": output.get("judgment_report", ""),
-                            "plain_language": output.get("plain_language_version", ""),
-                            "convergence_reason": output.get("convergence_reason", ""),
-                            "kfe": output.get("kfe", {}),
-                            "legal_knowledge": output.get("legal_knowledge", ""),
-                            "evidence_sufficient": output.get("evidence_sufficient", True),
-                            "interrupt_reason": output.get("interrupt_reason", ""),
+                            "verdict": accumulated.get("verdict", ""),
+                            "judgment_report": accumulated.get("judgment_report", ""),
+                            "plain_language": accumulated.get("plain_language_version", ""),
+                            "convergence_reason": accumulated.get("convergence_reason", ""),
+                            "kfe": accumulated.get("kfe", {}),
+                            "legal_knowledge": accumulated.get("legal_knowledge", ""),
+                            "evidence_sufficient": accumulated.get("evidence_sufficient", True),
+                            "evidence_needed": accumulated.get("evidence_needed", False),
+                            "interrupt_reason": accumulated.get("interrupt_reason", ""),
                             "structured_summary": structured,
                         }, ensure_ascii=False, default=str),
                     }
+
+            # 工作流提前结束（如法官判定证据不足触发中断）→ 补发 done 事件
+            if not done_sent:
+                yield {
+                    "event": "done",
+                    "data": json.dumps({
+                        "status": "interrupted",
+                        "final_result": "",
+                        "verdict": "",
+                        "judgment_report": "",
+                        "plain_language": "",
+                        "convergence_reason": accumulated.get("convergence_reason", ""),
+                        "kfe": accumulated.get("kfe", {}),
+                        "legal_knowledge": accumulated.get("legal_knowledge", ""),
+                        "evidence_sufficient": accumulated.get("evidence_sufficient", True),
+                        "evidence_needed": accumulated.get("evidence_needed", False),
+                        "interrupt_reason": accumulated.get("interrupt_reason", ""),
+                        "structured_summary": {},
+                    }, ensure_ascii=False, default=str),
+                }
 
         except Exception as e:
             logger.exception("Debate stream error")

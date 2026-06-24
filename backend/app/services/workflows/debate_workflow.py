@@ -58,6 +58,8 @@ class DebateWorkflowState(TypedDict):
     converged: bool
     convergence_reason: str
     evidence_needed: bool
+    # 标记是否已经补证过（补证后不再触发中断，且跳过开庭阶段直接进入辩论）
+    evidence_supplemented: bool
 
     verdict: str
     judgment_report: str
@@ -91,16 +93,43 @@ async def extract_kfe_node(state: DebateWorkflowState, llm: BaseChatModel) -> di
     return {"kfe": kfe}
 
 
-async def check_evidence_node(state: DebateWorkflowState, _llm: BaseChatModel) -> dict:
+async def check_evidence_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
     """节点2: 检查证据充分性"""
     kfe = state.get("kfe", {})
     logger.info("check_evidence_node KFE: %s", kfe)
     sufficient, reason = check_evidence_sufficiency(kfe)
     logger.info("check_evidence_node result: sufficient=%s, reason=%s", sufficient, reason)
-    return {
+
+    result = {
         "evidence_sufficient": sufficient,
         "interrupt_reason": reason if not sufficient else "",
     }
+
+    # 补证后跳过开庭阶段，需要生成简化的 focus_points 供辩论使用
+    if state.get("evidence_supplemented", False) and sufficient:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        prompt = f"""基于以下案情和关键法律事实，简要归纳2-3个核心争议焦点（直接输出文本，不要JSON格式）：
+
+案情：{state["case_description"][:1000]}
+
+证据摘要：{state.get("evidence_summary", "")[:500]}
+
+关键法律事实：
+{json.dumps(kfe, ensure_ascii=False, indent=2)}
+
+请简要归纳争议焦点："""
+        try:
+            response = await llm.ainvoke([
+                SystemMessage(content="你是资深法官，请简要归纳本案争议焦点。"),
+                HumanMessage(content=prompt),
+            ])
+            result["focus_points"] = response.content
+            logger.info("补证后生成简化焦点成功")
+        except Exception as e:
+            logger.warning("补证后生成焦点失败: %s", e)
+            result["focus_points"] = "基于补充证据的争议焦点"
+
+    return result
 
 
 async def retrieve_knowledge_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
@@ -220,15 +249,24 @@ async def plaintiff_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel
     judge_comments = state.get("judge_comments", [])
     last_judge_comment = judge_comments[-1] if judge_comments else ""
 
-    rebuttal = await lawyer.rebuttal(
-        defendant_arg=last_defendant,
-        case_facts=case_facts,
-        round_num=round_num,
-        plaintiff_args=state.get("plaintiff_args", []),
-        defendant_args=state.get("defendant_args", []),
-        judge_comment=last_judge_comment,
-        legal_knowledge=state.get("legal_knowledge", ""),
-    )
+    # 补证后直接进入辩论（跳过了开庭陈述），第一轮使用 opening_statement
+    if not state.get("defendant_args") and not state.get("plaintiff_args"):
+        logger.info("补证后首轮辩论，原告使用开庭陈述")
+        rebuttal = await lawyer.opening_statement(
+            case_facts=case_facts,
+            focus_points=state.get("focus_points", ""),
+            legal_knowledge=state.get("legal_knowledge", ""),
+        )
+    else:
+        rebuttal = await lawyer.rebuttal(
+            defendant_arg=last_defendant,
+            case_facts=case_facts,
+            round_num=round_num,
+            plaintiff_args=state.get("plaintiff_args", []),
+            defendant_args=state.get("defendant_args", []),
+            judge_comment=last_judge_comment,
+            legal_knowledge=state.get("legal_knowledge", ""),
+        )
 
     plaintiff_args = list(state.get("plaintiff_args", []))
     plaintiff_args.append(rebuttal)
@@ -258,15 +296,25 @@ async def defendant_rebuttal_node(state: DebateWorkflowState, llm: BaseChatModel
     judge_comments = state.get("judge_comments", [])
     last_judge_comment = judge_comments[-1] if judge_comments else ""
 
-    rebuttal = await lawyer.rebuttal(
-        plaintiff_arg=last_plaintiff,
-        case_facts=case_facts,
-        round_num=round_num,
-        plaintiff_args=state.get("plaintiff_args", []),
-        defendant_args=state.get("defendant_args", []),
-        judge_comment=last_judge_comment,
-        legal_knowledge=state.get("legal_knowledge", ""),
-    )
+    # 补证后直接进入辩论（跳过了开庭陈述），第一轮使用 opening_statement
+    if not state.get("defendant_args"):
+        logger.info("补证后首轮辩论，被告使用开庭陈述")
+        rebuttal = await lawyer.opening_statement(
+            case_facts=case_facts,
+            plaintiff_claim=last_plaintiff or state["case_description"],
+            focus_points=state.get("focus_points", ""),
+            legal_knowledge=state.get("legal_knowledge", ""),
+        )
+    else:
+        rebuttal = await lawyer.rebuttal(
+            plaintiff_arg=last_plaintiff,
+            case_facts=case_facts,
+            round_num=round_num,
+            plaintiff_args=state.get("plaintiff_args", []),
+            defendant_args=state.get("defendant_args", []),
+            judge_comment=last_judge_comment,
+            legal_knowledge=state.get("legal_knowledge", ""),
+        )
 
     defendant_args = list(state.get("defendant_args", []))
     defendant_args.append(rebuttal)
@@ -307,6 +355,12 @@ async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
     except (ValueError, TypeError):
         pass
 
+    # 已补证过则不再触发中断（限制中途补证最多出现一次）
+    if state.get("evidence_supplemented", False):
+        evidence_needed = False
+        interrupt_reason = ""
+        logger.info("已补证过，强制不再触发中断")
+
     result = {
         "judge_comments": judge_comments,
         "messages": [AIMessage(content=f"【法官点评 第{round_num}轮】\n{comment}")],
@@ -314,6 +368,7 @@ async def judge_comment_node(state: DebateWorkflowState, llm: BaseChatModel) -> 
 
     if evidence_needed and interrupt_reason:
         result["evidence_needed"] = True
+        result["evidence_sufficient"] = False  # 同步标记，确保 done 事件正确传递给前端
         result["interrupt_reason"] = interrupt_reason
         logger.info("法官判定证据不足，触发补证: %s", interrupt_reason)
 
@@ -481,8 +536,7 @@ async def finalize_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
         "draft": "调解方案草案要点",
         "enforcement": "执行保障措施建议"
     }},
-    "confidence_score": 85,
-    "can_sign": "可签/有条件可签/不建议签"
+    "confidence_score": 85
 }}"""
 
     try:
@@ -521,7 +575,6 @@ async def finalize_node(state: DebateWorkflowState, llm: BaseChatModel) -> dict:
             },
             "mediation_suggestion": {"draft": "", "enforcement": ""},
             "confidence_score": 70,
-            "can_sign": "待评估",
         }
 
     return {"final_result": final, "structured_summary": structured}
@@ -532,6 +585,14 @@ def route_after_evidence(state: DebateWorkflowState) -> Literal["retrieve_knowle
     if state.get("evidence_sufficient", True):
         return "retrieve_knowledge"
     return "__end__"
+
+
+def route_after_retrieve(state: DebateWorkflowState) -> Literal["judge_opening", "plaintiff_rebuttal"]:
+    """法律检索后的路由：补证后跳过开庭阶段，直接进入辩论循环"""
+    # 已补证过 → 不再休庭开庭，直接继续辩论
+    if state.get("evidence_supplemented", False):
+        return "plaintiff_rebuttal"
+    return "judge_opening"
 
 
 def route_after_convergence(state: DebateWorkflowState) -> Literal["plaintiff_rebuttal", "judge_verdict", "__end__"]:
@@ -610,7 +671,8 @@ def build_debate_workflow(
         return await plain_language_node(state, _fast)
 
     async def _finalize(state: DebateWorkflowState) -> dict:
-        return await finalize_node(state, _fast)
+        # 使用 heavy_llm 确保结构化报告 JSON 生成质量（fast_llm 的 max_tokens 可能不足导致截断）
+        return await finalize_node(state, heavy_llm)
 
     # 注册节点
     graph.add_node("extract_kfe", _extract_kfe)
@@ -639,7 +701,11 @@ def build_debate_workflow(
         "__end__": END,
     })
 
-    graph.add_edge("retrieve_knowledge", "judge_opening")
+    # 补证后跳过开庭阶段，直接进入辩论循环
+    graph.add_conditional_edges("retrieve_knowledge", route_after_retrieve, {
+        "judge_opening": "judge_opening",
+        "plaintiff_rebuttal": "plaintiff_rebuttal",
+    })
     graph.add_edge("judge_opening", "plaintiff_opening")
     graph.add_edge("plaintiff_opening", "defendant_opening")
     # 新增：被告陈述后进入法庭调查

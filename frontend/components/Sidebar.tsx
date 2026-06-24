@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Scale, FileText, LayoutDashboard, Shield, BookOpen, LogIn, LogOut, FolderOpen } from 'lucide-react'
+import { MessageSquare, Scale, FileText, LayoutDashboard, Shield, BookOpen, LogIn, LogOut, FolderOpen, User } from 'lucide-react'
 import { useChatStore } from '@/store/useChatStore'
-import { clearToken } from '@/app/lib/api'
+import { clearToken, getUsername } from '@/app/lib/api'
+import { useState, useEffect } from 'react'
 
 const navItems = [
   { name: '工作空间', icon: LayoutDashboard, href: '/dashboard' },
@@ -22,10 +23,17 @@ interface SidebarProps {
 export default function Sidebar({ onLoginClick }: SidebarProps) {
   const pathname = usePathname()
   const { authed, setAuthed } = useChatStore()
+  const [username, setUsername] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (authed) setUsername(getUsername())
+    else setUsername(null)
+  }, [authed])
 
   const handleLogout = () => {
     clearToken()
     setAuthed(false)
+    setUsername(null)
   }
 
   return (
@@ -62,10 +70,20 @@ export default function Sidebar({ onLoginClick }: SidebarProps) {
 
       <div className="p-4 border-t border-white/10">
         {authed ? (
-          <button onClick={handleLogout} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-red-300 transition-colors">
-            <LogOut size={14} />
-            <span className="text-xs">退出登录</span>
-          </button>
+          <div className="space-y-2">
+            {username && (
+              <div className="flex items-center gap-2 px-2 text-white/80">
+                <div className="w-7 h-7 rounded-full bg-blue-500/30 border border-blue-300/30 flex items-center justify-center flex-shrink-0">
+                  <User size={13} className="text-blue-200" />
+                </div>
+                <span className="text-xs truncate" title={username}>{username}</span>
+              </div>
+            )}
+            <button onClick={handleLogout} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-red-300 transition-colors">
+              <LogOut size={14} />
+              <span className="text-xs">退出登录</span>
+            </button>
+          </div>
         ) : (
           <button onClick={onLoginClick} className="flex items-center gap-2 px-2 w-full text-white/60 hover:text-white transition-colors">
             <LogIn size={14} />

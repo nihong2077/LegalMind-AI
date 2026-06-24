@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
+import Disclaimer from '@/components/Disclaimer'
 import {
   FileText, CheckCircle, AlertCircle, Shield,
   Loader2, Plus, Download,
@@ -114,10 +115,15 @@ export default function DocumentUpload() {
       updatedAt: new Date().toISOString(),
     }
     try {
-      const raw = localStorage.getItem('legalmind_contract_reviews')
+      // 按用户名隔离存储，避免不同账号数据串用
+      const storageKey = (() => {
+        const username = localStorage.getItem('legalmind_username')
+        return username ? `legalmind_contract_reviews:${username}` : 'legalmind_contract_reviews'
+      })()
+      const raw = localStorage.getItem(storageKey)
       const existing: typeof reviewCase[] = raw ? JSON.parse(raw) : []
       const updated = [reviewCase, ...existing.filter(r => r.id !== id)]
-      localStorage.setItem('legalmind_contract_reviews', JSON.stringify(updated))
+      localStorage.setItem(storageKey, JSON.stringify(updated))
     } catch { /* localStorage 不可用 */ }
 
     // 同步到后端（已登录时）
@@ -320,6 +326,7 @@ export default function DocumentUpload() {
                 选择文件上传
               </button>
               <p className="text-xs text-slate-400 mt-4">或将文件拖拽到此处</p>
+              <div className="mt-6"><Disclaimer variant="compact" /></div>
             </motion.div>
           </div>
         )}
@@ -606,6 +613,7 @@ export default function DocumentUpload() {
                       </div>
                     ) : <div className="text-center py-12 text-[11px] text-slate-400">{isReviewing ? '等待审查完成...' : '暂无审查结论'}</div>
                   )}
+                  <div className="mt-3"><Disclaimer variant="full" /></div>
                 </div>
               </aside>
             </div>

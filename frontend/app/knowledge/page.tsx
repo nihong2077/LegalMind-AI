@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import LoginModal from '@/components/LoginModal'
+import Disclaimer from '@/components/Disclaimer'
 import {
   Search, BookOpen, Scale, FileText, ChevronRight,
   Loader2, RefreshCw, Filter, Database, Hash, Calendar,
@@ -612,6 +613,7 @@ export default function KnowledgePage() {
                   <Calendar size={10} />
                   <span>数据已持久化存储</span>
                 </div>
+                <div className="mt-2"><Disclaimer variant="compact" /></div>
               </div>
             </div>
           </aside>

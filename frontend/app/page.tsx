@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Scale, ArrowRight, Brain, FileSearch, BookOpen } from 'lucide-react'
+import { Scale, ArrowRight, Brain, FileSearch, BookOpen, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { isAuthenticated } from '@/app/lib/api'
 import dynamic from 'next/dynamic'
@@ -178,10 +178,18 @@ export default function Home() {
       </section>
 
       {/* 底部 */}
-      <footer className="relative z-10 py-12 text-center border-t border-white/10 bg-slate-950">
-        <p className="text-xs text-slate-500">
-          LegalMind AI © {new Date().getFullYear()} · 智能司法协作平台 · 仅供法律研究参考
-        </p>
+      <footer className="relative z-10 py-10 text-center border-t border-white/10 bg-slate-950">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="flex items-start justify-center gap-2 mb-3">
+            <AlertTriangle size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <p className="text-[11px] text-amber-500/80 leading-relaxed text-left">
+              <strong>免责声明：</strong>本平台由人工智能技术提供，回答可能存在错误或偏差，仅供参考，<strong>不构成任何司法建议或法律意见</strong>。法律问题具有高度专业性，如遇实际法律纠纷，请务必咨询执业律师或相关法律专业人士。
+            </p>
+          </div>
+          <p className="text-xs text-slate-500">
+            LegalMind AI © {new Date().getFullYear()} · 智能司法协作平台 · 仅供法律研究参考
+          </p>
+        </div>
       </footer>
     </div>
   )

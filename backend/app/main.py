@@ -131,6 +131,14 @@ async def lifespan(app: FastAPI):
         logger.critical("Redis 初始化失败，服务无法启动")
         raise
 
+    # 初始化默认管理员账号（admin/admin），保证首次部署可登录
+    try:
+        from .core.user_service import ensure_default_admin
+        await ensure_default_admin()
+        logger.info("默认管理员账号已就绪")
+    except Exception as e:
+        logger.warning("默认管理员账号初始化失败: %s", e)
+
     # PostgreSQL: 必须成功，带重试
     for attempt in range(5):
         try:

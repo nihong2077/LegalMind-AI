@@ -8,6 +8,7 @@ export interface ChatMessage {
 export interface TokenResponse {
   access_token: string
   token_type: string
+  username?: string
 }
 
 export interface StreamChunk {
@@ -26,6 +27,8 @@ export interface StreamError {
   message: string
 }
 
+const USERNAME_KEY = 'legalmind_username'
+
 function getToken(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem('legalmind_token')
@@ -37,10 +40,16 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem('legalmind_token')
+  localStorage.removeItem(USERNAME_KEY)
 }
 
 export function isAuthenticated(): boolean {
   return !!getToken()
+}
+
+export function getUsername(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(USERNAME_KEY)
 }
 
 export async function login(username: string, password: string): Promise<TokenResponse> {
@@ -55,6 +64,23 @@ export async function login(username: string, password: string): Promise<TokenRe
   }
   const data: TokenResponse = await res.json()
   setToken(data.access_token)
+  if (data.username) localStorage.setItem(USERNAME_KEY, data.username)
+  return data
+}
+
+export async function register(username: string, password: string): Promise<TokenResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: '注册失败' }))
+    throw new Error(err.detail || '注册失败')
+  }
+  const data: TokenResponse = await res.json()
+  setToken(data.access_token)
+  if (data.username) localStorage.setItem(USERNAME_KEY, data.username)
   return data
 }
 
@@ -335,6 +361,8 @@ export interface DebateRequest {
   case_description: string
   evidence_summary?: string
   task_type?: string
+  // 是否为补证后重新启动（补证后跳过开庭阶段，直接进入辩论，且不再触发中断）
+  evidence_supplemented?: boolean
 }
 
 export interface DebateResult {
@@ -371,6 +399,7 @@ export interface DebateStreamDone {
   convergence_reason: string
   kfe: Record<string, unknown>
   evidence_sufficient: boolean
+  evidence_needed?: boolean
   interrupt_reason: string
   structured_summary: StructuredSummary
 }

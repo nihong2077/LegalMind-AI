@@ -13,6 +13,14 @@ import LoginModal from '@/components/LoginModal'
 // 共享的存储键（与 court/page.tsx 一致）
 const COURT_CASES_KEY = 'legalmind_court_cases'
 const CHAT_HISTORY_KEY = 'legalmind_chat_history'
+const CONTRACT_REVIEWS_KEY = 'legalmind_contract_reviews'
+
+// 按用户名隔离 localStorage key，避免不同账号数据串用
+function getStorageKey(base: string): string {
+  if (typeof window === 'undefined') return base
+  const username = localStorage.getItem('legalmind_username')
+  return username ? `${base}:${username}` : base
+}
 
 interface SavedCourtCase {
   id: string
@@ -34,7 +42,7 @@ interface ChatHistory {
 function loadCourtCases(): SavedCourtCase[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(COURT_CASES_KEY)
+    const raw = localStorage.getItem(getStorageKey(COURT_CASES_KEY))
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
@@ -42,27 +50,27 @@ function loadCourtCases(): SavedCourtCase[] {
 function loadChatHistories(): ChatHistory[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(CHAT_HISTORY_KEY)
+    const raw = localStorage.getItem(getStorageKey(CHAT_HISTORY_KEY))
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function deleteCourtCase(id: string): SavedCourtCase[] {
   const cases = loadCourtCases().filter(c => c.id !== id)
-  localStorage.setItem(COURT_CASES_KEY, JSON.stringify(cases))
+  localStorage.setItem(getStorageKey(COURT_CASES_KEY), JSON.stringify(cases))
   return cases
 }
 
 function deleteChatHistory(id: string): ChatHistory[] {
   const histories = loadChatHistories().filter(h => h.id !== id)
-  localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(histories))
+  localStorage.setItem(getStorageKey(CHAT_HISTORY_KEY), JSON.stringify(histories))
   return histories
 }
 
 function loadContractReviews(): Array<{ id: string; title: string; description: string; createdAt: string }> {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem('legalmind_contract_reviews')
+    const raw = localStorage.getItem(getStorageKey(CONTRACT_REVIEWS_KEY))
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
@@ -141,7 +149,7 @@ export default function CasesPage() {
   const handleContinue = (c: UnifiedCase) => {
     if (c.type === 'court') {
       // 保存要恢复的案件 ID，court 页面会在挂载时读取
-      localStorage.setItem('legalmind_continue_case', c.id)
+      localStorage.setItem(getStorageKey('legalmind_continue_case'), c.id)
       router.push('/court')
     } else if (c.type === 'contract') {
       router.push('/documents')

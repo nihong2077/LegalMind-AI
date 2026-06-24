@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Shield, Loader2, Scale, Eye, EyeOff } from 'lucide-react'
-import { login, isAuthenticated } from '@/app/lib/api'
+import { login, register, isAuthenticated } from '@/app/lib/api'
 import { useChatStore } from '@/store/useChatStore'
 
 export default function LoginPage() {
@@ -36,8 +36,7 @@ export default function LoginPage() {
       }
       setLoading(true)
       try {
-        // 注册接口调用（暂用登录接口模拟）
-        await login(username, password)
+        await register(username, password)
         setAuthed(true)
         router.replace('/dashboard')
       } catch (err: unknown) {

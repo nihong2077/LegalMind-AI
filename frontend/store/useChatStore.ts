@@ -165,10 +165,17 @@ const STORAGE_KEY = 'legalmind_sessions'
 const CHAT_HISTORY_KEY = 'legalmind_chat_history'  // 供案件记忆页面使用
 const MAX_CONTEXT_MESSAGES = 20
 
+// 按用户名隔离 localStorage key，避免不同账号数据串用
+function getStorageKey(base: string): string {
+  if (typeof window === 'undefined') return base
+  const username = localStorage.getItem('legalmind_username')
+  return username ? `${base}:${username}` : base
+}
+
 function loadSessions(): Session[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(getStorageKey(STORAGE_KEY))
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return parsed.map((s: Session) => ({
@@ -186,7 +193,7 @@ function saveSessions(sessions: Session[]) {
   if (typeof window === 'undefined') return
   try {
     const toSave = sessions.slice(0, 50)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
+    localStorage.setItem(getStorageKey(STORAGE_KEY), JSON.stringify(toSave))
   } catch {
     // storage满时忽略
   }
@@ -339,7 +346,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   checkAuth: () => set({ authed: isAuthenticated() }),
 
-  setAuthed: (authed) => set({ authed }),
+  setAuthed: (authed) => {
+    if (authed) {
+      // 登录后加载当前用户的会话数据（按用户名隔离）
+      const sessions = loadSessions()
+      const currentSessionId = sessions[0]?.id || null
+      const messages = sessions[0]?.messages || []
+      const rightPanelData = buildRightPanelData(messages)
+      set({
+        authed: true,
+        sessions,
+        currentSessionId,
+        messages,
+        rightPanelData,
+        currentCase: null,
+        error: null,
+      })
+    } else {
+      // 退出登录时清除内存中的会话状态（localStorage 数据保留，下次登录该账号仍可恢复）
+      set({
+        authed: false,
+        sessions: [],
+        currentSessionId: null,
+        messages: [],
+        rightPanelData: { relatedLaws: [], riskWarnings: [], termExplanations: [], quickQuestions: [], scenarioType: '' },
+        currentCase: null,
+        error: null,
+      })
+    }
+  },
 
   loginUser: async (username, password) => {
     try {
@@ -364,22 +399,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().createSession()
     }
 
+    // 先构造发送给后端的消息列表（基于旧 state + 当前用户问题）
+    // 注意：必须在 addMessage 之前构造，因为 state.messages 是旧引用，
+    // addMessage 会创建新数组，旧引用不会更新
+    const chatMessages: ChatMessage[] = state.messages
+      .filter((m) => m.role !== 'system')
+      .slice(-MAX_CONTEXT_MESSAGES)
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }))
+    chatMessages.push({ role: 'user', content })
+
     get().addMessage({ role: 'user', content })
 
     get().addMessage({ role: 'assistant', content: '', agent: 'LegalMind AI' })
 
     const abortController = new AbortController()
     set({ isStreaming: true, streamingPhase: null, error: null, abortController })
-
-    const recentMessages = state.messages
-      .filter((m) => m.role !== 'system')
-      .slice(-MAX_CONTEXT_MESSAGES)
-
-    const chatMessages: ChatMessage[] = recentMessages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }))
-    // addMessage 已将用户消息加入 state.messages，recentMessages 已包含它，无需再 push
 
     let fullContent = ''
     // 流式渲染节流：用 rAF 保证每帧最多更新一次 DOM，避免"一团一团"出现
@@ -495,12 +532,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessions = state.sessions.filter((s) => s.id !== id)
       saveSessions(sessions)
 
-      // 同步删除案件记忆
+      // 同步删除案件记忆（按用户隔离）
       if (typeof window !== 'undefined') {
         try {
-          const raw = localStorage.getItem(CHAT_HISTORY_KEY)
+          const key = getStorageKey(CHAT_HISTORY_KEY)
+          const raw = localStorage.getItem(key)
           const histories = raw ? JSON.parse(raw) : []
-          localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(histories.filter((h: { id: string }) => h.id !== id)))
+          localStorage.setItem(key, JSON.stringify(histories.filter((h: { id: string }) => h.id !== id)))
         } catch { /* storage full */ }
       }
 
@@ -547,10 +585,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       saveSessions(sessions)
 
-      // 同步保存到案件记忆存储
+      // 同步保存到案件记忆存储（按用户隔离）
       if (typeof window !== 'undefined' && state.messages.length > 0) {
         try {
-          const raw = localStorage.getItem(CHAT_HISTORY_KEY)
+          const key = getStorageKey(CHAT_HISTORY_KEY)
+          const raw = localStorage.getItem(key)
           const histories = raw ? JSON.parse(raw) : []
           const existing = histories.findIndex((h: { id: string }) => h.id === state.currentSessionId)
           const entry = {
@@ -561,7 +600,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           if (existing >= 0) histories[existing] = entry
           else histories.unshift(entry)
-          localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(histories.slice(0, 50)))
+          localStorage.setItem(key, JSON.stringify(histories.slice(0, 50)))
         } catch { /* storage full */ }
       }
 
