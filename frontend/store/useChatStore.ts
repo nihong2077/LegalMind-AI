@@ -163,6 +163,7 @@ function buildRightPanelData(messages: Message[]): RightPanelData {
 
 const STORAGE_KEY = 'legalmind_sessions'
 const CHAT_HISTORY_KEY = 'legalmind_chat_history'  // 供案件记忆页面使用
+const MODEL_KEY = 'legalmind_selected_model'  // 当前选中的对话模型
 const MAX_CONTEXT_MESSAGES = 20
 
 // 按用户名隔离 localStorage key，避免不同账号数据串用
@@ -170,6 +171,16 @@ function getStorageKey(base: string): string {
   if (typeof window === 'undefined') return base
   const username = localStorage.getItem('legalmind_username')
   return username ? `${base}:${username}` : base
+}
+
+function loadSelectedModel(): string {
+  if (typeof window === 'undefined') return 'deepseek-flash'
+  return localStorage.getItem(getStorageKey(MODEL_KEY)) || 'deepseek-flash'
+}
+
+function saveSelectedModel(model: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(getStorageKey(MODEL_KEY), model)
 }
 
 function loadSessions(): Session[] {
@@ -214,6 +225,7 @@ interface ChatState {
   sessions: Session[]
   currentSessionId: string | null
   rightPanelData: RightPanelData
+  selectedModel: string
 
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void
   updateLastAssistantMessage: (content: string) => void
@@ -230,6 +242,7 @@ interface ChatState {
   setAuthed: (authed: boolean) => void
   loginUser: (username: string, password: string) => Promise<void>
   sendMessage: (content: string, model?: string) => Promise<void>
+  setSelectedModel: (model: string) => void
   stopStreaming: () => void
 
   createSession: () => string
@@ -261,6 +274,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     termExplanations: [],
     scenarioType: '通用',
   },
+  selectedModel: loadSelectedModel(),
 
   addMessage: (message) =>
     set((state) => {
@@ -348,7 +362,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setAuthed: (authed) => {
     if (authed) {
-      // 登录后加载当前用户的会话数据（按用户名隔离）
+      // 登录后加载当前用户的会话数据与模型偏好（按用户名隔离）
       const sessions = loadSessions()
       const currentSessionId = sessions[0]?.id || null
       const messages = sessions[0]?.messages || []
@@ -359,6 +373,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         currentSessionId,
         messages,
         rightPanelData,
+        selectedModel: loadSelectedModel(),
         currentCase: null,
         error: null,
       })
@@ -370,6 +385,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         currentSessionId: null,
         messages: [],
         rightPanelData: { relatedLaws: [], riskWarnings: [], termExplanations: [], quickQuestions: [], scenarioType: '' },
+        selectedModel: 'deepseek-flash',
         currentCase: null,
         error: null,
       })
@@ -386,7 +402,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (content, model = 'deepseek-flash') => {
+  setSelectedModel: (model) => {
+    saveSelectedModel(model)
+    set({ selectedModel: model })
+  },
+
+  sendMessage: async (content, model) => {
     const state = get()
 
     if (state.isStreaming) return
@@ -394,6 +415,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ error: '请先登录' })
       return
     }
+
+    // 默认使用 store 中选中的模型（由顶部下拉切换）
+    const effectiveModel = model || state.selectedModel
 
     if (!state.currentSessionId) {
       get().createSession()
@@ -437,7 +461,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      for await (const event of chatStream(chatMessages, model, abortController.signal)) {
+      for await (const event of chatStream(chatMessages, effectiveModel, abortController.signal)) {
         if (event.type === 'status') {
           set({ streamingPhase: event.data.phase })
         } else if (event.type === 'chunk') {

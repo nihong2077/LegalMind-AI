@@ -5,10 +5,11 @@ import {
   Send, Paperclip, Plus, Clock, User, Sparkles, Copy, Check,
   Trash2, MessageSquare, X, StopCircle, RefreshCw, FileText,
   Lightbulb, AlertTriangle, BookOpen, HelpCircle, ChevronRight,
-  Scale
+  Scale, ChevronDown, Cpu, Cloud, CheckCircle2, AlertCircle
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useChatStore } from '@/store/useChatStore'
+import { listModels, type ModelOption } from '@/app/lib/api'
 import Disclaimer from '@/components/Disclaimer'
 
 const QUICK_QUESTIONS = [
@@ -130,19 +131,46 @@ export default function ChatInterface() {
   const {
     messages, isStreaming, streamingPhase, authed, error, sendMessage, stopStreaming,
     checkAuth, sessions, currentSessionId, createSession, switchSession, deleteSession,
-    uploadAndAnalyze,
+    uploadAndAnalyze, selectedModel, setSelectedModel,
   } = useChatStore()
 
   const [input, setInput] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [models, setModels] = useState<ModelOption[]>([])
   const [quoteText, setQuoteText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { checkAuth() }, [checkAuth])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, isStreaming])
+
+  // 登录后拉取可用模型列表
+  useEffect(() => {
+    if (!authed) return
+    let cancelled = false
+    listModels().then(list => { if (!cancelled) setModels(list) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [authed])
+
+  // 点击外部关闭模型下拉
+  useEffect(() => {
+    if (!showModelMenu) return
+    const handler = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showModelMenu])
+
+  const currentModelInfo = models.find(m => m.id === selectedModel)
+  const currentModelName = currentModelInfo?.name || (selectedModel === 'legalmind-ft' ? '法律领域微调模型' : 'DeepSeek Flash')
+  const currentModelAvailable = currentModelInfo?.available ?? true
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -188,6 +216,62 @@ export default function ChatInterface() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* 模型切换器 */}
+          <div className="relative" ref={modelMenuRef}>
+            <button
+              onClick={() => setShowModelMenu(!showModelMenu)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-all ${showModelMenu ? 'border-blue-300 bg-blue-50 text-blue-600' : 'border-gray-200 text-slate-600 hover:bg-slate-50'}`}
+              title="切换对话模型"
+            >
+              {selectedModel === 'legalmind-ft' ? <Cpu size={14} /> : <Cloud size={14} />}
+              <span className="max-w-[120px] truncate">{currentModelName}</span>
+              {!currentModelAvailable && <AlertCircle size={12} className="text-amber-500" />}
+              <ChevronDown size={12} className={`transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+              {showModelMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="absolute right-0 top-full mt-1 w-64 glass-card-static p-1.5 z-20"
+                >
+                  {models.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setSelectedModel(m.id); setShowModelMenu(false) }}
+                      className={`w-full flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-all ${m.id === selectedModel ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                    >
+                      <div className="mt-0.5">
+                        {m.id === 'legalmind-ft' ? <Cpu size={15} className="text-purple-600" /> : <Cloud size={15} className="text-blue-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-medium text-slate-700">{m.name}</span>
+                          {m.id === selectedModel && <CheckCircle2 size={12} className="text-blue-600" />}
+                        </div>
+                        <p className="text-[10px] mt-0.5 flex items-center gap-1">
+                          {m.available ? (
+                            <span className="text-emerald-500 flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />可用</span>
+                          ) : (
+                            <span className="text-amber-500 flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />未就绪</span>
+                          )}
+                          {m.id === 'legalmind-ft' && <span className="text-slate-400">· 本地部署</span>}
+                          {m.id === 'deepseek-flash' && <span className="text-slate-400">· 云端</span>}
+                        </p>
+                        {!m.available && m.error && (
+                          <p className="text-[10px] text-amber-600 mt-1 line-clamp-2">{m.error}</p>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                  <div className="px-2.5 py-1.5 mt-0.5 border-t border-gray-100">
+                    <p className="text-[10px] text-slate-400">本地模型不可用时将自动降级到云端</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <button onClick={() => createSession()} className="gold-btn-sm flex items-center gap-1.5"><Plus size={14} /> 新建对话</button>
           <button onClick={() => setShowHistory(!showHistory)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-all ${showHistory ? 'border-blue-300 bg-blue-50 text-blue-600' : 'border-gray-200 text-slate-500 hover:bg-slate-50'}`}>
             <Clock size={14} /> 历史记录
@@ -312,7 +396,10 @@ export default function ChatInterface() {
               <div className="flex items-center gap-2">
                 {[0,120,240].map(d => <span key={d} className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
                 <span className="text-xs text-slate-400 ml-1">
-                  {streamingPhase === 'retrieving' ? '正在检索法律知识…' : streamingPhase === 'generating' ? '正在生成回答…' : 'AI 正在分析...'}
+                  {streamingPhase === 'retrieving' ? '正在检索法律知识…'
+                    : streamingPhase === 'fallback' ? '本地模型未就绪，已切换到云端…'
+                    : streamingPhase === 'generating' ? '正在生成回答…'
+                    : 'AI 正在分析...'}
                 </span>
               </div>
             </div>

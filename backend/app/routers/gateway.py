@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from ..core.config import settings
-from ..core.llm_client import get_llm_client
+from ..core.llm_client import LOCAL_FT_MODEL, get_llm_client
 from ..core.redis_client import (
     enqueue_task,
     generate_task_id,
@@ -385,6 +385,30 @@ class ChatRequest(BaseModel):
     max_tokens: int = 2048
 
 
+@router.get("/models")
+async def list_available_models(user: dict = Depends(get_current_user)):
+    """返回前端可选的模型列表及可用性状态"""
+    llm = get_llm_client()
+    local_status = await llm.local_health_check()
+
+    return {
+        "models": [
+            {
+                "id": "deepseek-flash",
+                "name": "DeepSeek Flash",
+                "available": True,
+            },
+            {
+                "id": LOCAL_FT_MODEL,
+                "name": "法律领域微调模型",
+                "available": local_status.get("status") == "healthy",
+                "status": local_status.get("status"),
+                "error": local_status.get("error", ""),
+            },
+        ]
+    }
+
+
 @router.post("/chat/stream")
 async def chat_stream(
     body: ChatRequest,
@@ -439,6 +463,21 @@ async def chat_stream(
                 logger.warning("RAG 检索失败，降级为纯 LLM 回答: %s", e)
 
         # 阶段2: LLM 流式生成
+        # 本地微调模型不可用时降级到 DeepSeek Flash，避免直接报错
+        effective_model = body.model
+        if body.model == LOCAL_FT_MODEL:
+            local_status = await llm.local_health_check()
+            if local_status.get("status") != "healthy":
+                effective_model = "deepseek-flash"
+                logger.warning("本地微调模型不可用，降级到 deepseek-flash: %s", local_status.get("error"))
+                yield {
+                    "event": "status",
+                    "data": json.dumps({
+                        "phase": "fallback",
+                        "message": "本地微调模型暂不可用，已自动切换到 DeepSeek Flash",
+                    }, ensure_ascii=False),
+                }
+
         yield {
             "event": "status",
             "data": json.dumps({"phase": "generating", "message": "正在生成回答…"}, ensure_ascii=False),
@@ -446,7 +485,7 @@ async def chat_stream(
         full_content = ""
         try:
             async for chunk in llm.chat_stream(
-                model=body.model,
+                model=effective_model,
                 messages=messages,
                 temperature=body.temperature,
                 max_tokens=body.max_tokens,

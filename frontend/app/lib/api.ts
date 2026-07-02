@@ -201,6 +201,20 @@ export async function checkHealth(): Promise<{ status: string; redis?: unknown; 
   return res.json()
 }
 
+export interface ModelOption {
+  id: string
+  name: string
+  available: boolean
+  status?: string
+  error?: string
+}
+
+export async function listModels(): Promise<ModelOption[]> {
+  const res = await authFetch(`${API_BASE}/api/models`)
+  const data = await res.json()
+  return data.models || []
+}
+
 export interface DashboardStats {
   chat_count: number
   doc_count: number

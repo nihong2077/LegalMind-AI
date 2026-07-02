@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LITELLM_VIRTUAL_KEY: str = ""
 
+    # 本地微调模型（GGUF，经 Ollama 提供 OpenAI 兼容接口）
+    LOCAL_LLM_API_BASE: str = "http://localhost:11434/v1"
+    LOCAL_LLM_MODEL: str = "legalmind-ai"
+    LOCAL_LLM_API_KEY: str = "ollama"
+
     CORS_ORIGINS: str = "http://localhost:3000"
 
     ADMIN_USERNAME: str = "admin"
