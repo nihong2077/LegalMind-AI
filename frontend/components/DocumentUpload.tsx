@@ -305,7 +305,7 @@ export default function DocumentUpload() {
           </div>
         </header>
 
-        <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt" className="hidden" onChange={e => handleFiles(e.target.files)} />
+        <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,image/png,image/jpeg,image/jpg,image/webp,image/bmp" className="hidden" onChange={e => handleFiles(e.target.files)} />
 
         {/* 未上传时显示上传区域 */}
         {!hasReviewData && files.length === 0 && (
@@ -320,7 +320,7 @@ export default function DocumentUpload() {
                 <FileUp size={28} className="text-blue-600" />
               </div>
               <h2 className="text-lg font-semibold text-slate-700 mb-2">上传合同文件</h2>
-              <p className="text-sm text-slate-500 mb-6">支持 PDF、Word、TXT 格式，上传后 AI 将自动进行合同审查</p>
+              <p className="text-sm text-slate-500 mb-6">支持 PDF、Word、TXT、图片（JPG/PNG/WEBP）格式，上传后 AI 将自动进行合同审查</p>
               <button onClick={() => fileInputRef.current?.click()}
                 className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm">
                 选择文件上传

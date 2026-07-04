@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "legalmind-ai"
     LOCAL_LLM_API_KEY: str = "ollama"
 
+    # OCR 服务（PaddleOCR AIStudio 异步任务 API）
+    OCR_API_URL: str = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
+    OCR_API_TOKEN: str = ""
+    OCR_MODEL: str = "PP-OCRv6"
+    OCR_POLL_INTERVAL: int = 5
+    OCR_POLL_TIMEOUT: int = 300
+
     CORS_ORIGINS: str = "http://localhost:3000"
 
     ADMIN_USERNAME: str = "admin"

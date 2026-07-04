@@ -647,7 +647,7 @@ async def upload_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
-    allowed_ext = {".pdf", ".docx", ".txt", ".doc"}
+    allowed_ext = {".pdf", ".docx", ".txt", ".doc", ".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed_ext:
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
@@ -705,6 +705,34 @@ async def get_document(doc_id: str, user: dict = Depends(get_current_user)):
     return {k: v for k, v in data.items() if k != "path"}
 
 
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+async def _ocr_pdf_pages(file_path: str) -> str:
+    """扫描版 PDF 回退: 逐页渲染为 PNG 送 PaddleOCR,拼接纯文本返回。"""
+    import fitz
+    from ..services.ocr_service import ocr_file
+
+    parts: list[str] = []
+    doc = fitz.open(file_path)
+    try:
+        for page in doc:
+            # 200 DPI 兼顾清晰度与速度;识别率低可调到 300
+            pix = page.get_pixmap(dpi=200)
+            tmp_path = f"/tmp/ocr_page_{page.number}_{uuid.uuid4().hex[:6]}.png"
+            pix.save(tmp_path)
+            try:
+                page_text = await ocr_file(tmp_path)
+                if page_text.strip():
+                    parts.append(page_text)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+    finally:
+        doc.close()
+    return "\n\n".join(parts)
+
+
 @router.get("/documents/{doc_id}/content")
 async def get_document_content(doc_id: str, user: dict = Depends(get_current_user)):
     r = get_redis()
@@ -723,6 +751,11 @@ async def get_document_content(doc_id: str, user: dict = Depends(get_current_use
         if ext == ".txt":
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text_content = f.read()
+        elif ext in IMAGE_EXTS:
+            # 图片类合同:直接走 OCR
+            from ..services.ocr_service import ocr_file
+            ocr_text = await ocr_file(file_path)
+            text_content = ocr_text if ocr_text.strip() else f"[图片 OCR 失败: {data.get('name', '')}]"
         elif ext == ".pdf":
             try:
                 import fitz
@@ -732,6 +765,13 @@ async def get_document_content(doc_id: str, user: dict = Depends(get_current_use
                 doc.close()
             except ImportError:
                 text_content = f"[PDF文件: {data.get('name', '')}]"
+            # 扫描版 PDF (无文本层) 回退 OCR
+            if not text_content.strip():
+                try:
+                    text_content = await _ocr_pdf_pages(file_path)
+                except Exception as ocr_err:
+                    logger.warning("PDF OCR 回退失败: %s", ocr_err)
+                    text_content = f"[PDF OCR 失败: {data.get('name', '')}]"
         elif ext in (".docx", ".doc"):
             try:
                 from docx import Document
