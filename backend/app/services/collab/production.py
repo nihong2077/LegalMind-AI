@@ -7,7 +7,8 @@
   [HostSkill.speak_and_decide](host_skill.py)；
 - **scheduler**：``court`` → [court_scheduler](templates/court.py)（打散串行、庭审用语中性）；
   其余 → 通用 [SchedulerSkill.decide](scheduler_skill.py)（隐藏排序智能体，D14）；
-- **agent_runner**：[make_agent_runner](agent_nodes.py)（T1.5 真实 Skill 映射 + S1 流式）；
+- **agent_runner**：[make_agent_runner](agent_nodes.py)（T1.5 真实 Skill 映射 + S1 流式；
+  注入 [make_web_context](web_decision.py) 的联网前置决策，fail-open）；
 - **tool_runner**：[make_tool_runner](tool_nodes.py)（法规/类案检索辐条，fail-open）；
 - **decision_recorder**：[audit.record_host_decision](audit.py)（host_decisions 落库，fail-open）；
 - **interaction_card**：``court`` → 庭审补证卡片（同步件，分派器包成 async）；
@@ -46,6 +47,7 @@ from .templates.court import (
     make_court_conclude_producer,
 )
 from .tool_nodes import make_tool_runner
+from .web_decision import make_web_context
 
 
 async def build_production_injectables(
@@ -98,7 +100,10 @@ async def build_production_injectables(
     return {
         "host_advisor": host_advisor,
         "scheduler": scheduler,
-        "agent_runner": make_agent_runner(llm=llm, store=store, registry=reg, emit=emit),
+        "agent_runner": make_agent_runner(
+            llm=llm, store=store, registry=reg, emit=emit,
+            web=make_web_context(llm=llm, store=store, emit=emit),
+        ),
         "tool_runner": make_tool_runner(llm=llm, store=store, emit=emit),
         "decision_recorder": record_host_decision,
         "interaction_card": interaction_card,

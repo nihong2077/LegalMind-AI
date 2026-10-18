@@ -737,6 +737,56 @@ round 缺省 / 空记录 40001 / emit fail-open / 历史条数）；`tests/test_
 - 新增 `tests/test_speaker_notice.py`（8 用例：产出/中立性/幂等/uuid5/降级/边界 + 图级触发/未注入不产出），
   `tests/test_collab_production.py` 契约键补 `speaker_notice`；全量后端 **324 passed**（316 + 8，无回归）。
 
+### 3.17 联网检索（DeepSeek Search/Fetch）交付记录 ✅
+
+**范围**：发言 Agent 在**正式流式发言前**自主判断是否需要联网，需要则检索外部公开信息
+（最新法规/司法解释/新闻/公开资料），以**引用卡 + 资料块**形式并入上下文；密钥仅经
+LiteLLM 透传注入，后端不接触真实 key。
+
+**Step1（客户端 + 透传 + 单测）✅**
+- [core/web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py)（新）：
+  `WebSearchClient.search_web()/fetch_url()`，**透传优先 + 直连回退**双链路，可重试错误
+  （408/429/5xx/超时）按 `WEB_SEARCH_MAX_ATTEMPTS` 退避；`normalize_search_result`
+  按 `content→summary→snippet` 回退；`WebSearchError`。
+- `core/config.py` 新增 `WEB_SEARCH_*`（ENABLED/COUNT/TOP_N/TIMEOUT/MAX_ATTEMPTS/NEED_CONTENT），
+  `core/metrics.py` 新增 `legalmind_web_search_calls_total{op,mode,status}`，
+  `litellm/config.yaml` 新增 `/v1/tools/search|fetch` 透传端点（`Bearer os.environ/DEEPSEEK_API_KEY`）。
+- `tests/test_web_search.py`（11 用例，httpx.MockTransport）。
+
+**Step2（发言前置决策 + 引用卡 + 资料块 + 单测）✅**
+- [services/collab/web_decision.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/web_decision.py)（新）：
+  `make_web_context` → `WebContextProvider.maybe_search(agent, state, ctx, conversation_id)`：
+  用**该 Agent 自己的模型** + `web_search`/`web_fetch` function schema 做前置决策；
+  需要则检索 → 发 `tool` 进度事件（running/done/error）→ 产出 `msg_type=card`
+  联网引用卡（`card_type="web_citation"`，`event_key={turn}:r{round}:{agent}:web` 幂等落库
+  + 热缓存 + `message` 事件）→ 返回 `【联网检索资料】` 资料块。
+- [services/collab/agent_nodes.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/agent_nodes.py)：
+  `AgentNodeRunner` 新增 `web` 注入点，在构建 `ctx` 后、流式发言前把资料块并入 `ctx.materials`
+  （**零侵入**：不改任何 Skill 流式方法）。
+- `services/collab/production.py`：`make_agent_runner(..., web=make_web_context(...))`。
+- 前端 [MessageBubble.tsx](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/collab/MessageBubble.tsx)：
+  引用卡支持 `card_type="web_citation"`（标题「联网检索」）并渲染来源链接。
+
+**关键设计取舍**：
+- **开关与降级**：`WEB_SEARCH_ENABLED=False` → 零额外 LLM/网络调用；决策/检索任何异常
+  只记日志 + 发 `tool:error`，**返回空串不阻断发言**（对齐 A1「代码只做护栏」）。
+- **零侵入**：联网资料只并入既有 `ctx.materials`（Skill 早已消费该字段），不新增图节点/固定边。
+- **键隔离**：联网卡 `...:{agent}:web` 与 Agent 正文 `...:{agent}:0`、法规/类案工具卡
+  `...:{tool_id}:0`、分隔条 `...:notice:0` 互不冲突。
+
+**验证**：`tests/test_web_decision.py`（10 用例：开关/决策/搜索/抓取/幂等/两级降级 +
+AgentNodeRunner 并入资料块/未注入行为不变）；全量后端 **334 passed**（324 + 10，无回归）。
+
+**Step3（现场验证）✅**
+- Search：`client.search_web("最新彩礼返还司法解释", top_n=3)` 真实返回 **3 条**公开结果
+  （湖南高院涉彩礼典型案例、涉彩礼纠纷司法解释等），含 `title/url/content/site_name`；
+- Fetch：`client.fetch_url(<真实法条页>)` 真实返回 `title` + 正文 **5744 字符**；
+- 本机未起 LiteLLM、`LITELLM_VIRTUAL_KEY` 为空 → `_use_proxy=False`，
+  自动走**直连回退**链路（`_use_direct=True`）即成功，验证「透传优先 + 直连回退」双链路成立。
+- 验证脚本为一次性临时件，跑完即删（未入库、未落盘密钥）。
+
+**遗留**：无。
+
 ### P2 — 长期记忆（Codex 式）
 
 | ID | 任务 | 主要文件 | 验收 |

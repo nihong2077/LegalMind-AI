@@ -348,11 +348,15 @@ class AgentNodeRunner:
         store: Optional[ConversationStore] = None,
         registry: Optional[RegistryService] = None,
         emit: Optional[Emitter] = None,
+        web: Optional[Any] = None,
     ) -> None:
         self._llm = llm
         self._store = store
         self._registry = registry
         self._emit = emit or _default_emit
+        # 联网前置决策件（P2-WebSearch Step2，可选）：需暴露
+        # ``maybe_search(agent, state, ctx, conversation_id) -> str``（见 web_decision.py）
+        self._web = web
 
     @property
     def llm(self) -> LLMClient:
@@ -373,7 +377,23 @@ class AgentNodeRunner:
         ctx = build_group_context(
             agent, state, case_type_label=(tpl or {}).get("name") or ""
         )
+        # 联网前置决策（零侵入）：需要则在正式流式发言前把联网资料并入 ctx.materials
+        await self._augment_materials(agent, state, ctx, conversation_id)
         return await self._stream_persist(agent, state, ctx, conversation_id)
+
+    async def _augment_materials(
+        self, agent: dict[str, Any], state: dict[str, Any], ctx: GroupContext, conversation_id: str
+    ) -> None:
+        """调用联网前置决策件（若注入）并把资料块并入 ``ctx.materials``（fail-open）。"""
+        if self._web is None:
+            return
+        try:
+            block = await self._web.maybe_search(agent, state, ctx, conversation_id)
+        except Exception as e:  # 联网失败绝不阻断发言
+            logger.warning("[collab] 联网前置检索调用失败（忽略）：%s", e)
+            return
+        if block:
+            ctx.materials = f"{ctx.materials}\n\n{block}" if ctx.materials else str(block)
 
     # ---- 主路径 ----
 
@@ -443,6 +463,7 @@ def make_agent_runner(
     store: Optional[ConversationStore] = None,
     registry: Optional[RegistryService] = None,
     emit: Optional[Emitter] = None,
+    web: Optional[Any] = None,
 ) -> AgentNodeRunner:
     """构造 agent_runner（graph 可注入扩展点）。"""
-    return AgentNodeRunner(llm=llm, store=store, registry=registry, emit=emit)
+    return AgentNodeRunner(llm=llm, store=store, registry=registry, emit=emit, web=web)

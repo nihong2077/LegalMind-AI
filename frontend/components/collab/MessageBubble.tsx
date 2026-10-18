@@ -39,7 +39,13 @@ export default function MessageBubble({
     const isMinutes = msgType === 'minutes'
     const cardType = typeof metadata?.card_type === 'string' ? metadata.card_type : ''
     const citations = Array.isArray(metadata?.citations)
-      ? (metadata?.citations as { source?: string; content?: string; score?: number }[])
+      ? (metadata?.citations as {
+          source?: string
+          title?: string
+          url?: string
+          content?: string
+          score?: number
+        }[])
       : []
     const title = isMinutes
       ? '会商纪要'
@@ -47,7 +53,9 @@ export default function MessageBubble({
         ? '类案引用'
         : cardType === 'law_citation'
           ? '法规引用'
-          : '会商卡片'
+          : cardType === 'web_citation'
+            ? '联网检索'
+            : '会商卡片'
     return (
       <div className="my-2 rounded-xl border border-blue-200 bg-white overflow-hidden">
         <div className="px-3 py-2 bg-blue-50 flex items-center gap-2">
@@ -65,7 +73,7 @@ export default function MessageBubble({
               <div key={i} className="py-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-blue-700 truncate">
-                    {c.source || '系统'}
+                    {c.title || c.source || '系统'}
                   </span>
                   {typeof c.score === 'number' && (
                     <span className="text-[10px] text-slate-400 flex-shrink-0">
@@ -76,6 +84,16 @@ export default function MessageBubble({
                 <p className="text-xs text-slate-600 mt-0.5 leading-relaxed whitespace-pre-wrap break-words">
                   {c.content}
                 </p>
+                {c.url && (
+                  <a
+                    href={c.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-blue-500 hover:underline break-all"
+                  >
+                    {c.url}
+                  </a>
+                )}
               </div>
             ))}
           </div>
