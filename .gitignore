@@ -73,3 +73,6 @@ Thumbs.db
 
 # ========== 日志 ==========
 *.log
+
+# 本地预下载的大型 wheel（构建用，不入库）
+backend/.wheelcache/

@@ -46,7 +46,7 @@ export default function Home() {
 
   useEffect(() => {
     if (isAuthenticated()) {
-      router.replace('/dashboard')
+      router.replace('/messages')
     }
     setMounted(true)
     // 监听滚动，更新进度

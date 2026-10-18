@@ -3,18 +3,28 @@ import gc
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import text
 
 from .core.config import settings
+from .core.health import readiness_report
 from .core.llm_client import close_llm_client, get_llm_client
+from .core.logging import RequestContextMiddleware, setup_logging
+from .core.metrics import PrometheusASGIMiddleware
 from .core.pg_client import close_pg, init_pg
 from .core.qdrant_client import close_qdrant, init_qdrant
 from .core.redis_client import close_redis, init_redis, redis_health_check
-from .routers import gateway
+from .core.response import LegacyEnvelopeMiddleware, register_exception_handlers
+from .core.tracing import instrument_app, setup_tracing
+from .routers import agents, collab, conversations, gateway, memory
+
+# 尽早统一日志格式（structlog JSON + stdlib 桥接）
+setup_logging()
+# OTel 常开：全局 instrumentor + W3C 传播（FastAPI app 在路由注册后 instrument）
+setup_tracing()
 
 logger = logging.getLogger(__name__)
 
@@ -99,37 +109,23 @@ async def memory_monitor_task():
         except Exception as e:
             logger.error("内存监控任务异常: %s", e)
 
-REQUEST_COUNT = Counter(
-    "http_requests_total",
-    "Total HTTP requests",
-    ["method", "endpoint", "status"],
-)
-REQUEST_LATENCY = Histogram(
-    "http_request_duration_seconds",
-    "HTTP request latency",
-    ["method", "endpoint"],
-)
-CIRCUIT_BREAKER_TRIPS = Counter(
-    "circuit_breaker_trips_total",
-    "Circuit breaker trip count",
-    ["name"],
-)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Redis: 必须成功，带重试
+    last_exc: Exception | None = None
     for attempt in range(5):
         try:
             await init_redis()
             logger.info("Redis 初始化成功")
             break
         except Exception as e:
+            last_exc = e
             logger.warning("Redis 初始化失败 (第%d次): %s", attempt + 1, e)
             await asyncio.sleep(2 ** attempt)
     else:
         logger.critical("Redis 初始化失败，服务无法启动")
-        raise
+        raise last_exc  # type: ignore[misc]
 
     # 初始化默认管理员账号（admin/admin），保证首次部署可登录
     try:
@@ -140,17 +136,26 @@ async def lifespan(app: FastAPI):
         logger.warning("默认管理员账号初始化失败: %s", e)
 
     # PostgreSQL: 必须成功，带重试
+    pg_last_exc: Exception | None = None
     for attempt in range(5):
         try:
             await init_pg()
             logger.info("PostgreSQL 初始化成功")
             break
         except Exception as e:
+            pg_last_exc = e
             logger.warning("PG 初始化失败 (第%d次): %s", attempt + 1, e)
             await asyncio.sleep(2 ** attempt)
     else:
         logger.critical("PostgreSQL 初始化失败，服务无法启动")
-        raise
+        raise pg_last_exc  # type: ignore[misc]
+
+    # LangGraph Checkpointer：连 legalmind_app 建 checkpoint 三表；可降级
+    try:
+        from .core.checkpoint import init_checkpointer
+        await init_checkpointer()
+    except Exception as e:
+        logger.warning("LangGraph 检查点初始化失败（协同中断/恢复暂不可用）: %s", e)
 
     # Qdrant: 可降级
     try:
@@ -171,9 +176,20 @@ async def lifespan(app: FastAPI):
     logger.info("内存监控已启动 (告警阈值=%.0f%%, 强制回收阈值=%.0f%%)",
                 MEMORY_WARNING_THRESHOLD * 100, MEMORY_CRITICAL_THRESHOLD * 100)
 
+    # Kafka：懒连，启动期不建连；此处只记录开关状态
+    logger.info(
+        "Kafka 事件总线：%s（bootstrap=%s）",
+        "ENABLED，首次发送时懒连" if settings.ENABLE_KAFKA else "DISABLED，事件走进程内降级",
+        settings.KAFKA_BOOTSTRAP_SERVERS,
+    )
+
     yield
 
     monitor_task.cancel()
+    from .core.events import event_bus
+    await event_bus.close()
+    from .core.checkpoint import close_checkpointer
+    await close_checkpointer()
     await close_llm_client()
     await close_qdrant()
     await close_pg()
@@ -194,58 +210,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.middleware("http")
-async def prometheus_middleware(request: Request, call_next):
-    method = request.method
-    endpoint = request.url.path
-
-    with REQUEST_LATENCY.labels(method=method, endpoint=endpoint).time():
-        response = await call_next(request)
-
-    REQUEST_COUNT.labels(
-        method=method,
-        endpoint=endpoint,
-        status=response.status_code,
-    ).inc()
-    return response
-
-
-EXCEPTION_STATUS_MAP = {
-    PermissionError: status.HTTP_403_FORBIDDEN,
-    FileNotFoundError: status.HTTP_404_NOT_FOUND,
-    TimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
-    ConnectionError: status.HTTP_502_BAD_GATEWAY,
-    RuntimeError: status.HTTP_500_INTERNAL_SERVER_ERROR,
-    ValueError: status.HTTP_400_BAD_REQUEST,
-    KeyError: status.HTTP_400_BAD_REQUEST,
-    TypeError: status.HTTP_400_BAD_REQUEST,
-}
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception("未处理异常 [%s %s]", request.method, request.url.path)
-    for exc_type, http_status in EXCEPTION_STATUS_MAP.items():
-        if isinstance(exc, exc_type):
-            return JSONResponse(
-                status_code=http_status,
-                content={
-                    "detail": str(exc),
-                    "type": exc_type.__name__,
-                },
-            )
-
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": "服务器内部错误",
-            "type": type(exc).__name__,
-        },
-    )
+# 全局异常处理：新路由（EnvelopeRouter/raise BizException）走统一信封；
+# 旧路由保持 FastAPI 默认错误形状，再由 LegacyEnvelopeMiddleware 统一穿信封
+# （T0.12；旧 global_exception_handler 的异常→状态映射已迁入 response.py）。
+register_exception_handlers(app)
 
 
 app.include_router(gateway.router)
+app.include_router(conversations.router)
+app.include_router(collab.router)
+app.include_router(agents.router)
+app.include_router(memory.router)
 
 
 @app.get("/")
@@ -260,8 +235,9 @@ async def health_check():
 
     pg_statuses = {}
     try:
-        from .core.pg_client import ENGINES
-        for name, engine in ENGINES.items():
+        from .core.pg_client import ENGINES, app_engine
+        engines = {**ENGINES, "app": app_engine}
+        for name, engine in engines.items():
             try:
                 async with engine.connect() as conn:
                     await conn.execute(text("SELECT 1"))
@@ -311,3 +287,34 @@ async def metrics():
         generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+@app.get("/healthz")
+async def healthz():
+    """存活探针：进程在即 200，**不查任何依赖**（断 Redis 仍返回 200）。"""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """就绪探针：Redis/PG/Qdrant 健康、Kafka 生产者已连（或开关关闭）才 200。"""
+    report = await readiness_report()
+    http_status = 200 if report["ready"] else 503
+    return JSONResponse(content=report, status_code=http_status)
+
+
+# X-Request-ID 全链路 + 结构化访问日志：必须包裹在「最外层」。
+# Starlette 的 ServerErrorMiddleware 恒为 app 内建栈最外层，处理未捕获异常时
+# 经其外层传入的 send 发出 500 响应后再 re-raise；只有处在它外面，request-id
+# 中间件才能给 500 响应补 X-Request-ID 头、读到真实状态码，并保证异常处理器
+# 执行期间 contextvar 仍绑定（信封 request_id 不漂移）。
+#
+# 顺序：instrument_app 重写 FastAPI 内建栈（实测 otel-fastapi 0.66b1：
+# OTel 中间件位于内建栈的 ServerError 外侧），再逐层包裹 —— 请求链为
+# Client → RequestContext → Prometheus → Envelope → OTel → ServerError → 路由。
+# Envelope 必须在 ServerError 外侧：未捕获异常被内建栈转成 500 后，
+# 仍由 Envelope 补成统一错误信封（request_id 与 X-Request-ID 同源）。
+instrument_app(app)
+app = LegacyEnvelopeMiddleware(app)
+app = PrometheusASGIMiddleware(app)
+app = RequestContextMiddleware(app)

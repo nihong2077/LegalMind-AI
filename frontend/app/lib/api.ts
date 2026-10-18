@@ -1,4 +1,19 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import {
+  API_BASE,
+  ApiError,
+  request,
+  requestRaw,
+  getToken,
+  setToken,
+  setUsername,
+  clearToken,
+  isAuthenticated,
+  getUsername,
+} from './http'
+
+// 凭证相关统一由 http.ts 管理，此处继续对页面导出原符号
+export { setToken, clearToken, isAuthenticated, getUsername }
+export { ApiError } from './http'
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -22,90 +37,46 @@ export interface StreamDone {
   finish_reason: string
 }
 
+/** SSE error 事件统一形状（T0.12）；error 为兼容字段，新逻辑读 message */
 export interface StreamError {
-  error: string
+  code?: number
   message: string
-}
-
-const USERNAME_KEY = 'legalmind_username'
-
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('legalmind_token')
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem('legalmind_token', token)
-}
-
-export function clearToken(): void {
-  localStorage.removeItem('legalmind_token')
-  localStorage.removeItem(USERNAME_KEY)
-}
-
-export function isAuthenticated(): boolean {
-  return !!getToken()
-}
-
-export function getUsername(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(USERNAME_KEY)
+  error: string
+  detail?: string
+  retryable?: boolean
+  request_id?: string
 }
 
 export async function login(username: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/token`, {
+  const data = await request<TokenResponse>(`/api/auth/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: { username, password },
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '登录失败' }))
-    throw new Error(err.detail || '登录失败')
-  }
-  const data: TokenResponse = await res.json()
-  setToken(data.access_token)
-  if (data.username) localStorage.setItem(USERNAME_KEY, data.username)
+  // 先落用户名（Token 键按用户名隔离，需先确定身份），再写隔离 Token
+  const who = data.username || username
+  setUsername(who)
+  setToken(data.access_token, who)
   return data
 }
 
 export async function register(username: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/register`, {
+  const data = await request<TokenResponse>(`/api/auth/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: { username, password },
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '注册失败' }))
-    throw new Error(err.detail || '注册失败')
-  }
-  const data: TokenResponse = await res.json()
-  setToken(data.access_token)
-  if (data.username) localStorage.setItem(USERNAME_KEY, data.username)
+  const who = data.username || username
+  setUsername(who)
+  setToken(data.access_token, who)
   return data
 }
 
 export async function chatCompletion(messages: ChatMessage[], model = 'deepseek-flash') {
   const token = getToken()
   if (!token) throw new Error('未登录')
-
-  const res = await fetch(`${API_BASE}/api/chat`, {
+  return request(`${API_BASE}/api/chat`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ messages, model }),
+    body: { messages, model },
   })
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Token 已过期，请重新登录')
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '请求失败' }))
-    throw new Error(err.detail || '请求失败')
-  }
-  return res.json()
 }
 
 /** 通用 SSE 流解析器，供 chatStream / debateStream / contractReviewStream 复用 */
@@ -117,35 +88,46 @@ async function* parseSSEStream<T>(
   if (!reader) throw new Error('无法获取响应流')
 
   const decoder = new TextDecoder()
+  // 按 SSE 事件块（空行分隔）解析：event:/data: 可能跨 TCP 分片到达，
+  // 必须在 chunk 之间保留事件名与数据缓冲。
   let buffer = ''
+
+  function* dispatchBlock(rawBlock: string): Generator<T> {
+    let eventName = ''
+    const dataLines: string[] = []
+    for (const line of rawBlock.split('\n')) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).replace(/^ /, ''))
+      }
+    }
+    if (!dataLines.length) return
+    try {
+      const parsed = JSON.parse(dataLines.join('\n'))
+      const mapper = eventMap[eventName]
+      if (mapper) yield mapper(parsed)
+    } catch {
+      // 忽略非 JSON 数据（如 ping/注释）
+    }
+  }
 
   try {
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      let currentEvent = ''
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          const rawData = line.slice(6)
-          try {
-            const parsed = JSON.parse(rawData)
-            const mapper = eventMap[currentEvent]
-            if (mapper) {
-              yield mapper(parsed)
-            }
-          } catch {
-            // 忽略非 JSON 数据（如 ping）
-          }
-          currentEvent = ''
-        }
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+      let sep: number
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        yield* dispatchBlock(block)
       }
+    }
+    // 连接结束时刷新无空行结尾的末块
+    if (buffer.trim()) {
+      yield* dispatchBlock(buffer)
     }
   } finally {
     reader.releaseLock()
@@ -166,26 +148,11 @@ export async function* chatStream(
   const token = getToken()
   if (!token) throw new Error('未登录')
 
-  const res = await fetch(`${API_BASE}/api/chat/stream`, {
+  const res = await requestRaw(`${API_BASE}/api/chat/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ messages, model }),
+    body: { messages, model },
     signal,
   })
-
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Token 已过期，请重新登录')
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '请求失败' }))
-    throw new Error(err.detail || '请求失败')
-  }
 
   yield* parseSSEStream<ChatStreamEvent>(res, {
     message: (p) => ({ type: 'chunk', data: p as StreamChunk }),
@@ -196,6 +163,7 @@ export async function* chatStream(
 }
 
 export async function checkHealth(): Promise<{ status: string; redis?: unknown; litellm?: unknown }> {
+  // /health 不穿信封（仅 /api/* 切换）
   const res = await fetch(`${API_BASE}/health`)
   if (!res.ok) throw new Error('健康检查失败')
   return res.json()
@@ -210,8 +178,7 @@ export interface ModelOption {
 }
 
 export async function listModels(): Promise<ModelOption[]> {
-  const res = await authFetch(`${API_BASE}/api/models`)
-  const data = await res.json()
+  const data = await request<{ models: ModelOption[] }>(`${API_BASE}/api/models`)
   return data.models || []
 }
 
@@ -239,49 +206,23 @@ export interface DocumentItem {
   uploaded_at: string
 }
 
-async function authFetch(url: string, options?: RequestInit) {
-  const token = getToken()
-  if (!token) throw new Error('未登录')
-  const headers: Record<string, string> = {
-    ...(options?.headers as Record<string, string> || {}),
-    'Authorization': `Bearer ${token}`,
-  }
-  const res = await fetch(url, { ...options, headers })
-  // Token 过期或无效时，清除本地凭证并跳转登录页
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login'
-    }
-    throw new Error('Token 已过期，请重新登录')
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '请求失败' }))
-    throw new Error(err.detail || '请求失败')
-  }
-  return res
-}
-
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const res = await authFetch(`${API_BASE}/api/dashboard/stats`)
-  return res.json()
+  return request<DashboardStats>(`${API_BASE}/api/dashboard/stats`)
 }
 
 export async function incrementStat(key: 'chat_count' | 'doc_count'): Promise<void> {
-  await authFetch(`${API_BASE}/api/dashboard/stats/increment?key=${key}`, { method: 'POST' })
+  await request(`${API_BASE}/api/dashboard/stats/increment?key=${key}`, { method: 'POST' })
 }
 
 export async function getRecentCases(): Promise<CaseItem[]> {
-  const res = await authFetch(`${API_BASE}/api/dashboard/cases`)
-  return res.json()
+  return request<CaseItem[]>(`${API_BASE}/api/dashboard/cases`)
 }
 
 export async function createCase(title: string, description = ''): Promise<CaseItem> {
-  const res = await authFetch(
+  return request<CaseItem>(
     `${API_BASE}/api/dashboard/cases?title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`,
     { method: 'POST' },
   )
-  return res.json()
 }
 
 export async function uploadDocument(file: File): Promise<DocumentItem> {
@@ -291,37 +232,25 @@ export async function uploadDocument(file: File): Promise<DocumentItem> {
   const formData = new FormData()
   formData.append('file', file)
 
-  const res = await fetch(`${API_BASE}/api/documents/upload`, {
+  return request<DocumentItem>(`${API_BASE}/api/documents/upload`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
     body: formData,
   })
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Token 已过期，请重新登录')
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '上传失败' }))
-    throw new Error(err.detail || '上传失败')
-  }
-  return res.json()
 }
 
 export async function listDocuments(): Promise<DocumentItem[]> {
-  const res = await authFetch(`${API_BASE}/api/documents`)
-  return res.json()
+  return request<DocumentItem[]>(`${API_BASE}/api/documents`)
 }
 
 export async function getDocumentContent(docId: string): Promise<string> {
-  const res = await authFetch(`${API_BASE}/api/documents/${docId}/content`)
-  const data = await res.json()
+  const data = await request<{ content?: string; text?: string }>(
+    `${API_BASE}/api/documents/${docId}/content`,
+  )
   return data.content || data.text || ''
 }
 
 export async function analyzeDocument(docId: string): Promise<{ task_id: string; doc_id: string; status: string }> {
-  const res = await authFetch(`${API_BASE}/api/documents/${docId}/analyze`, { method: 'POST' })
-  return res.json()
+  return request(`${API_BASE}/api/documents/${docId}/analyze`, { method: 'POST' })
 }
 
 export interface KnowledgeSearchResult {
@@ -338,12 +267,10 @@ export interface KnowledgeSearchResponse {
 }
 
 export async function searchKnowledge(query: string, domain = 'law', topK = 8): Promise<KnowledgeSearchResponse> {
-  const res = await authFetch(`${API_BASE}/api/knowledge/search`, {
+  return request<KnowledgeSearchResponse>(`${API_BASE}/api/knowledge/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, domain, top_k: topK, use_hyde: true }),
+    body: { query, domain, top_k: topK, use_hyde: true },
   })
-  return res.json()
 }
 
 export interface KnowledgeListItem {
@@ -367,8 +294,7 @@ export async function listKnowledge(
   const params = new URLSearchParams({ domain, page: String(page), page_size: String(pageSize) })
   if (category) params.set('category', category)
   if (keyword) params.set('keyword', keyword)
-  const res = await authFetch(`${API_BASE}/api/knowledge/list?${params}`)
-  return res.json()
+  return request<KnowledgeListResponse>(`${API_BASE}/api/knowledge/list?${params}`)
 }
 
 export interface DebateRequest {
@@ -391,12 +317,10 @@ export interface DebateResult {
 }
 
 export async function runDebate(body: DebateRequest): Promise<DebateResult> {
-  const res = await authFetch(`${API_BASE}/api/debate/run`, {
+  return request<DebateResult>(`${API_BASE}/api/debate/run`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body,
   })
-  return res.json()
 }
 
 export interface DebateStreamChunk {
@@ -455,26 +379,11 @@ export async function* debateStream(
   const token = getToken()
   if (!token) throw new Error('未登录')
 
-  const res = await fetch(`${API_BASE}/api/debate/stream`, {
+  const res = await requestRaw(`${API_BASE}/api/debate/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
+    body,
     signal,
   })
-
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Token 已过期，请重新登录')
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '请求失败' }))
-    throw new Error(err.detail || '请求失败')
-  }
 
   yield* parseSSEStream<DebateStreamEvent>(res, {
     message: (p) => ({ type: 'chunk', data: p as DebateStreamChunk }),
@@ -498,12 +407,10 @@ export interface ContractReviewResult {
 }
 
 export async function reviewContract(body: ContractReviewRequest): Promise<ContractReviewResult> {
-  const res = await authFetch(`${API_BASE}/api/contract/review`, {
+  return request<ContractReviewResult>(`${API_BASE}/api/contract/review`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body,
   })
-  return res.json()
 }
 
 export interface ContractReviewDone {
@@ -536,7 +443,7 @@ export interface StructuredReviewData {
     must_fix_before_sign?: string[]; negotiation_priority?: string[]
   }
   report_sections?: {
-    summary?: string[]; clause_details?: string[];
+    summary?: string[]; clause_details?: string[]
     risk_summary?: string[]; revision_summary?: string[]; conclusion?: string[]
   }
   stats?: {
@@ -570,26 +477,11 @@ export async function* contractReviewStream(
   const token = getToken()
   if (!token) throw new Error('未登录')
 
-  const res = await fetch(`${API_BASE}/api/contract/review/stream`, {
+  const res = await requestRaw(`${API_BASE}/api/contract/review/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
+    body,
     signal,
   })
-
-  if (res.status === 401) {
-    clearToken()
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Token 已过期，请重新登录')
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '请求失败' }))
-    throw new Error(err.detail || '请求失败')
-  }
 
   yield* parseSSEStream<ContractReviewStreamEvent>(res, {
     message: (p) => ({ type: 'chunk', data: p as { node: string; content: string } }),

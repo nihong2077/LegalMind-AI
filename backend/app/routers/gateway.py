@@ -5,7 +5,6 @@ import logging
 import os
 import time
 import uuid
-from enum import Enum
 from typing import Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, status
@@ -21,6 +20,10 @@ from ..core.redis_client import (
     get_stream_events,
     get_task_status,
 )
+# 熔断器统一收口到 resilience（Redis 键/字段与旧实现兼容，行为不变）
+from ..core.resilience import CircuitState, RedisCircuitBreaker
+from ..core.response import sse_error_event
+from ..core.errors import ErrorCode
 from ..core.security import create_access_token, get_current_user
 from ..core.user_service import authenticate_user, create_user
 
@@ -38,7 +41,6 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
 
-CIRCUIT_BREAKER_PREFIX = "legalmind:cb:"
 SSE_PING_INTERVAL = 15
 
 
@@ -51,15 +53,18 @@ class SlidingWindowRateLimiter:
         r = get_redis()
         now = time.time()
         window_start = now - self.window_seconds
+        zset_key = f"ratelimit:{key}"
+        # 只统计已放行请求：被拒请求不再写入窗口，避免持续重试被永久锁死
         pipe = r.pipeline()
-        pipe.zremrangebyscore(f"ratelimit:{key}", 0, window_start)
-        pipe.zcard(f"ratelimit:{key}")
-        pipe.zadd(f"ratelimit:{key}", {str(now): now})
-        pipe.expire(f"ratelimit:{key}", self.window_seconds + 1)
+        pipe.zremrangebyscore(zset_key, 0, window_start)
+        pipe.zcard(zset_key)
         results = await pipe.execute()
-        current_count = results[1]
-        if current_count >= self.max_requests:
+        if results[1] >= self.max_requests:
             return False
+        pipe = r.pipeline()
+        pipe.zadd(zset_key, {str(now): now})
+        pipe.expire(zset_key, self.window_seconds + 1)
+        await pipe.execute()
         return True
 
 
@@ -67,98 +72,6 @@ rate_limiter = SlidingWindowRateLimiter(
     max_requests=settings.RATE_LIMIT_MAX_REQUESTS,
     window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
 )
-
-
-class CircuitState(str, Enum):
-    CLOSED = "CLOSED"
-    OPEN = "OPEN"
-    HALF_OPEN = "HALF_OPEN"
-
-
-class RedisCircuitBreaker:
-    def __init__(
-        self,
-        name: str = "default",
-        failure_threshold: int = 5,
-        recovery_timeout: int = 30,
-        half_open_max: int = 3,
-    ):
-        self.name = name
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.half_open_max = half_open_max
-
-    def _key(self) -> str:
-        return f"{CIRCUIT_BREAKER_PREFIX}{self.name}"
-
-    async def _get_state(self) -> dict:
-        r = get_redis()
-        data = await r.hgetall(self._key())
-        if not data:
-            return {
-                "state": CircuitState.CLOSED.value,
-                "failure_count": "0",
-                "last_failure_time": "",
-                "half_open_success": "0",
-            }
-        return data
-
-    async def _set_state(self, updates: dict) -> None:
-        r = get_redis()
-        await r.hset(self._key(), mapping=updates)
-        await r.expire(self._key(), self.recovery_timeout * 3)
-
-    async def get_current_state(self) -> CircuitState:
-        data = await self._get_state()
-        current = CircuitState(data.get("state", CircuitState.CLOSED.value))
-        if current == CircuitState.OPEN:
-            last_failure = float(data.get("last_failure_time") or "0")
-            if time.time() - last_failure >= self.recovery_timeout:
-                await self._set_state({
-                    "state": CircuitState.HALF_OPEN.value,
-                    "half_open_success": "0",
-                })
-                return CircuitState.HALF_OPEN
-        return current
-
-    async def record_success(self) -> None:
-        data = await self._get_state()
-        current = CircuitState(data.get("state", CircuitState.CLOSED.value))
-        if current == CircuitState.HALF_OPEN:
-            half_open = int(data.get("half_open_success", "0")) + 1
-            if half_open >= self.half_open_max:
-                await self._set_state({
-                    "state": CircuitState.CLOSED.value,
-                    "failure_count": "0",
-                    "half_open_success": "0",
-                })
-            else:
-                await self._set_state({"half_open_success": str(half_open)})
-        else:
-            await self._set_state({"failure_count": "0"})
-
-    async def record_failure(self) -> None:
-        data = await self._get_state()
-        failure_count = int(data.get("failure_count", "0")) + 1
-        updates = {
-            "failure_count": str(failure_count),
-            "last_failure_time": str(time.time()),
-        }
-        if failure_count >= self.failure_threshold:
-            updates["state"] = CircuitState.OPEN.value
-        await self._set_state(updates)
-
-    async def is_available(self) -> bool:
-        state = await self.get_current_state()
-        return state != CircuitState.OPEN
-
-    async def reset(self) -> None:
-        await self._set_state({
-            "state": CircuitState.CLOSED.value,
-            "failure_count": "0",
-            "last_failure_time": "",
-            "half_open_success": "0",
-        })
 
 
 def circuit_protect(name: str = "default", fallback: Optional[Callable] = None):
@@ -284,54 +197,74 @@ async def stream_task_progress(
         current_id = start_id
         last_ping = time.time()
 
-        while True:
-            if await request.is_disconnected():
-                break
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
 
-            events = await get_stream_events(task_id, last_id=current_id, count=10, block=3000)
+                events = await get_stream_events(task_id, last_id=current_id, count=10, block=3000)
 
-            if events:
-                for msg_id, msg in events:
-                    current_id = msg_id
-                    data = msg.get("data", "{}")
+                if events:
+                    for msg_id, msg in events:
+                        current_id = msg_id
+                        data = msg.get("data", "{}")
+                        yield {
+                            "id": msg_id,
+                            "event": "message",
+                            "data": data,
+                        }
+
+                        try:
+                            parsed = json.loads(data)
+                            if parsed.get("status") in ("completed", "failed"):
+                                return
+                        except json.JSONDecodeError:
+                            pass
+                    last_ping = time.time()
+                else:
+                    current_status = await get_task_status(task_id)
+                    if current_status and current_status.get("status") in ("completed", "failed"):
+                        final_data = json.dumps({
+                            "status": current_status["status"],
+                            "progress": current_status.get("progress", "100"),
+                            "result": current_status.get("result", ""),
+                            "error": current_status.get("error", ""),
+                        }, ensure_ascii=False)
+                        yield {
+                            "id": "final",
+                            "event": "message",
+                            "data": final_data,
+                        }
+                        if current_status["status"] == "failed":
+                            # 第三类旧形状（message 事件内带 status=failed）补发统一 error 事件
+                            yield sse_error_event(
+                                ErrorCode.INTERNAL_ERROR,
+                                message=current_status.get("error") or "任务执行失败",
+                                detail=current_status.get("error") or None,
+                                retryable=True,
+                            )
+                        return
+
+                now = time.time()
+                if now - last_ping >= SSE_PING_INTERVAL:
                     yield {
-                        "id": msg_id,
-                        "event": "message",
-                        "data": data,
+                        "event": "ping",
+                        "data": "",
                     }
+                    last_ping = now
 
-                    try:
-                        parsed = json.loads(data)
-                        if parsed.get("status") in ("completed", "failed"):
-                            return
-                    except json.JSONDecodeError:
-                        pass
-                last_ping = time.time()
-            else:
-                current_status = await get_task_status(task_id)
-                if current_status and current_status.get("status") in ("completed", "failed"):
-                    final_data = json.dumps({
-                        "status": current_status["status"],
-                        "progress": current_status.get("progress", "100"),
-                        "result": current_status.get("result", ""),
-                        "error": current_status.get("error", ""),
-                    }, ensure_ascii=False)
-                    yield {
-                        "id": "final",
-                        "event": "message",
-                        "data": final_data,
-                    }
-                    return
-
-            now = time.time()
-            if now - last_ping >= SSE_PING_INTERVAL:
-                yield {
-                    "event": "ping",
-                    "data": "",
-                }
-                last_ping = now
-
-            await asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            # 客户端断连：正常结束，不发 error
+            raise
+        except Exception as e:
+            logger.exception("Task stream error task_id=%s", task_id)
+            yield sse_error_event(
+                ErrorCode.INTERNAL_ERROR,
+                message="任务进度流中断，请稍后重试",
+                detail=str(e),
+                retryable=True,
+            )
 
     return EventSourceResponse(
         event_generator(),
@@ -520,19 +453,21 @@ async def chat_stream(
 
             await cb.record_success()
 
-            r = get_redis()
-            await r.incr(f"{DASHBOARD_STATS_PREFIX}chat_count")
+            # 统计失败（如 Redis 抖动）不得污染 LLM 成功结果与熔断计数
+            try:
+                r = get_redis()
+                await r.incr(f"{DASHBOARD_STATS_PREFIX}chat_count")
+            except Exception as stat_err:
+                logger.warning("chat_count 统计失败（不影响回答）: %s", stat_err)
 
         except Exception as e:
             logger.error("LLM 流式调用失败: %s", e)
             await cb.record_failure()
-            yield {
-                "event": "error",
-                "data": json.dumps({
-                    "error": str(e),
-                    "message": "AI 服务暂时不可用，请稍后重试",
-                }, ensure_ascii=False),
-            }
+            yield sse_error_event(
+                ErrorCode.LLM_CALL_FAILED,
+                message="AI 服务暂时不可用，请稍后重试",
+                detail=str(e),
+            )
 
     return EventSourceResponse(
         event_generator(),
@@ -877,10 +812,12 @@ async def stream_agent(
             yield {"event": "done", "data": json.dumps({"status": "completed"}, ensure_ascii=False)}
         except Exception as e:
             logger.error(f"Agent stream error: {e}")
-            yield {"event": "error", "data": json.dumps({"error": str(e)}, ensure_ascii=False)}
-
+            yield sse_error_event(
+                ErrorCode.LLM_CALL_FAILED,
+                message="智能体执行失败，请稍后重试",
+                detail=str(e),
+            )
     return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
-
 
 class KnowledgeSearchRequest(BaseModel):
     query: str
@@ -1314,10 +1251,11 @@ async def stream_debate(
 
         except Exception as e:
             logger.exception("Debate stream error")
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(e)}, ensure_ascii=False),
-            }
+            yield sse_error_event(
+                ErrorCode.LLM_CALL_FAILED,
+                message="庭审推演服务暂时不可用，请稍后重试",
+                detail=str(e),
+            )
 
     return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
 
@@ -1481,10 +1419,11 @@ async def review_contract_stream(
 
         except Exception as e:
             logger.exception("Contract review stream error")
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(e)}, ensure_ascii=False),
-            }
+            yield sse_error_event(
+                ErrorCode.LLM_CALL_FAILED,
+                message="合同审查服务暂时不可用，请稍后重试",
+                detail=str(e),
+            )
 
     return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
 

@@ -8,6 +8,9 @@ import { useChatStore } from '@/store/useChatStore'
 
 const PUBLIC_PATHS = ['/', '/login']
 
+// 已并入消息中心的旧页面：从导航隐藏，且直接访问时重定向到 /messages
+const MERGED_PATHS = ['/chat', '/court', '/knowledge', '/cases', '/dashboard']
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -24,7 +27,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace('/login')
     }
     if (authed && pathname === '/login') {
-      router.replace('/dashboard')
+      router.replace('/messages')
+    }
+    // 旧路由（已并入消息中心）直达时重定向，避免绕过新 IA
+    if (authed && MERGED_PATHS.some((p) => pathname === p || pathname?.startsWith(p + '/'))) {
+      router.replace('/messages')
     }
     setChecking(false)
   }, [pathname, router, checkAuth])

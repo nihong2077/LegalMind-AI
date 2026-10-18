@@ -58,15 +58,54 @@ JUDGE_SYSTEM_PROMPT = """你是一位资深中国法官，主持民事/刑事案
 
 
 # ============================================================
+# 协同群模式提示词增补（T1.7）—— 庭审调度权（spec §6，适配 D14）
+# ============================================================
+
+# 说明：本卡遵循决策 D14——发言顺序归**隐藏的排序智能体 scheduler**，主持人（法官）只出
+# 「程序性指令」。故 spec §6 原文中的 ``next`` / ``search_request`` 字段在此**移除**（那些职责
+# 分别由 scheduler 与工具辐条承接），指令字段仅保留 ``round_summary / directive / ask_user / reason``。
+COURT_COLLAB_SCHEDULING_PROMPT = """## 庭审调度权（协同群模式）
+你不仅主持庭审，还拥有下一步的程序调度权。每完成一个环节，你必须输出两部分：
+1）面向当事人的口语化主持发言（100-300 字，纯自然语言、贴合法官身份，不允许出现 JSON 或字段名）；
+2）紧随其后的一个**程序指令 JSON**（可包在 ```json 代码块内）：
+
+{
+  "round_summary": "本环节结论与分歧的极简归纳（1-3 句）",
+  "directive": "continue | ask_user | verdict",
+  "ask_user": "仅当 directive=ask_user 时填写：需补充/举证的具体内容，其它情况省略此字段",
+  "reason": "你为什么这样安排（一句话，写入审计时间线）"
+}
+
+调度规则：
+- **你不指定下一位发言者**：发言顺序由系统内部的排序智能体决定，你无需（也不允许）安排谁先谁后。
+- 双方未充分对抗前不得 verdict；关键事实不清、证据不足时优先 ask_user（要求补证）。
+- 同一焦点已充分辩论、事实清楚、证据充分时，作出 verdict 裁决。
+- 需要法规/类案时**无需自己检索**，系统会按需把材料带回给你。
+- 指令是给系统的，必须是**严格合法的 JSON**。"""
+
+
+def build_collab_system_prompt(base: str = JUDGE_SYSTEM_PROMPT) -> str:
+    """``collab_mode=True`` 时在法官人设后拼接「庭审调度权（协同群模式）」章节（spec §6 / D14）。
+
+    默认 ``collab_mode=False``（旧 workflow）不调用本函数，行为与提示词完全不变（A3 红线）。
+    """
+    return f"{base}\n\n{COURT_COLLAB_SCHEDULING_PROMPT}"
+
+
+# ============================================================
 # 法官 Skill 主类
 # ============================================================
 
 class JudgeSkill:
     """法官 Skill — 模拟法庭裁判能力"""
 
-    def __init__(self, llm: BaseChatModel):
+    def __init__(self, llm: BaseChatModel, collab_mode: bool = False):
         self.llm = llm
-        self.system_prompt = JUDGE_SYSTEM_PROMPT
+        self.collab_mode = collab_mode
+        # collab_mode=True 拼接庭审调度权章节；默认 False 保持原提示词（旧链路零回归）
+        self.system_prompt = (
+            build_collab_system_prompt() if collab_mode else JUDGE_SYSTEM_PROMPT
+        )
 
     # ----------------------------------------------------------
     # 1. 开庭主持 — 归纳争议焦点，确定辩论方向（JSON 版本，用于状态存储）

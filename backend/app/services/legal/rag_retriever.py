@@ -245,11 +245,28 @@ async def _pg_parallel_recall(
     return results
 
 
+def _resolve_payload_content(payload: dict) -> str:
+    """解析检索正文 —— 不同入库批次的 payload 形态不一：
+    法条正文（``content``）/ 类案事实（``facts_summary``）/ 法规标题（``title``）。"""
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("content", "facts_summary", "judgment_reasoning", "title"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def _deduplicate_candidates(
     qdrant_results: list[dict],
     pg_results: list[dict],
 ) -> list[dict]:
-    """Qdrant + pgvector 结果去重合并"""
+    """Qdrant + pgvector 结果去重合并
+
+    注意：Qdrant 命中只带 ``payload``（正文在 payload 内），必须把正文提升到顶层
+    ``content``；否则下游 ``apply_legal_filter`` 按 ``content`` 去重时，会把所有
+    命中折叠成 1 条（引用卡只剩 1 条引用）。
+    """
     seen_ids = set()
     seen_content_sig = set()
     merged = []
@@ -258,7 +275,11 @@ def _deduplicate_candidates(
         cid = r.get("id", "")
         if cid not in seen_ids:
             seen_ids.add(cid)
-            merged.append(r)
+            payload = r.get("payload")
+            content = r.get("content", "") or _resolve_payload_content(
+                payload if isinstance(payload, dict) else {}
+            )
+            merged.append({**r, "content": content})
 
     for r in pg_results:
         rid = str(r.get("id", ""))
@@ -307,12 +328,13 @@ def _format_final_results(results: list[dict]) -> list[dict]:
     formatted = []
     for r in results:
         payload = r.get("payload", {}) if isinstance(r.get("payload"), dict) else {}
-        content = r.get("content", "") or payload.get("content", "") or ""
+        content = r.get("content", "") or _resolve_payload_content(payload)
         source = (
             r.get("source_name", "")
             or payload.get("source_name", "")
             or payload.get("law_name", "")
             or payload.get("case_name", "")
+            or payload.get("title", "")
             or payload.get("source", "")
         )
 

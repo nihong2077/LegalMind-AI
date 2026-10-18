@@ -50,6 +50,20 @@ general_settings:
   store_model_in_db: true
   max_budget: 100
   budget_duration: 30d
+  # DeepSeek 官方联网检索（Search/Fetch）透传：客户端用虚拟 key 调本代理，
+  # 代理侧注入真实 DEEPSEEK_API_KEY（后端全程不接触真实 key）。
+  # 注意：不设 forward_headers，否则会转发客户端 key 覆盖注入的真实 key。
+  pass_through_endpoints:
+    - path: "/v1/tools/search"
+      target: "https://api.deepseek.com/v1/tools/search"
+      headers:
+        Authorization: "Bearer os.environ/DEEPSEEK_API_KEY"
+        content-type: "application/json"
+    - path: "/v1/tools/fetch"
+      target: "https://api.deepseek.com/v1/tools/fetch"
+      headers:
+        Authorization: "Bearer os.environ/DEEPSEEK_API_KEY"
+        content-type: "application/json"
 
 success_callback:
   - prometheus

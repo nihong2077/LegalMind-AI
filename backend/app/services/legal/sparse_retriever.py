@@ -57,16 +57,15 @@ def build_sparse_conditions(
     """
     构建稀疏检索条件和 Payload 过滤条件
 
+    注意：Qdrant collection 本身已按 domain 路由（``COLLECTIONS[domain]``），
+    且库内 payload 并不存在 ``domain`` 字段。旧实现在此处附加 ``domain`` 过滤条件，
+    会使 Dense 召回恒为 0 条（每次都被迫回退关键词检索），故不再附加 payload 过滤。
+
     Returns:
-        (keyword_terms, payload_filter) 关键词列表和 Qdrant payload 过滤器
+        (keyword_terms, payload_filter) 关键词列表和 Qdrant payload 过滤器（恒为 None）
     """
     terms = extract_precise_terms(query)
-
-    payload_filter = {}
-    if domain:
-        payload_filter["domain"] = domain
-
-    return terms, payload_filter if payload_filter else None
+    return terms, None
 
 
 async def sparse_search_keywords(
@@ -110,39 +109,37 @@ def merge_dense_sparse_scores(
     融合 Dense 和 Sparse 通道分数
 
     combined_score = (1 - w) * dense_score + w * sparse_score
-    同时保留仅在 sparse_results 中出现但不在 qdrant_results 中的候选
+    合并时以 ``sparse_results``（字段更完整，含已提升的顶层 ``content``）为基，
+    只从 ``qdrant_results`` 取 dense 分数；否则顶层 ``content`` 会在此处丢失，
+    导致下游按 ``content`` 去重时把候选折叠成 1 条。
     """
-    # 构建 qdrant 的 id -> result 映射
+    # id -> dense 原始命中（仅有 id/score/payload，缺顶层 content）
     dense_map = {}
     for r in qdrant_results:
         cid = r.get("id", "")
         if cid:
             dense_map[cid] = r
 
-    # 构建 sparse 的 id -> score 映射
-    sparse_map = {}
+    # id -> sparse 候选（已携带 payload / 已提升的顶层 content / sparse_score 等完整字段）
+    sparse_docs = {}
     for r in sparse_results:
         cid = r.get("id", "")
         if cid:
-            sparse_map[cid] = r.get("sparse_score", 0.0)
+            sparse_docs[cid] = r
 
     # 合并所有候选 id
-    all_ids = set(dense_map.keys()) | set(sparse_map.keys())
+    all_ids = set(dense_map.keys()) | set(sparse_docs.keys())
 
     merged = []
     for cid in all_ids:
-        dense_r = dense_map.get(cid)
-        dense_score = dense_r.get("score", 0.0) if dense_r else 0.0
-        sparse_score = sparse_map.get(cid, 0.0)
+        dense_score = dense_map[cid].get("score", 0.0) if cid in dense_map else 0.0
 
-        # 如果有 dense 结果，在其基础上更新分数
-        if dense_r:
-            r = dict(dense_r)
-        else:
-            # 仅在 sparse 中出现的候选，使用 sparse 结果作为基础
-            r = next((s for s in sparse_results if s.get("id") == cid), {"id": cid})
-            r = dict(r)
+        # 以 sparse_results（字段更完整）为基，避免丢掉已提升的顶层 content；
+        # 仅在 sparse 中缺失时退回 dense 原始命中。
+        base = sparse_docs.get(cid) or dense_map.get(cid) or {"id": cid}
+        r = dict(base)
 
+        sparse_score = float(r.get("sparse_score", 0.0) or 0.0)
         combined = (1 - sparse_weight) * dense_score + sparse_weight * sparse_score
         r["dense_score"] = dense_score
         r["sparse_score"] = sparse_score

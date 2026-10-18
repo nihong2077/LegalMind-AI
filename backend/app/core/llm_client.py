@@ -1,12 +1,15 @@
 import json
 import logging
+import time
 from typing import AsyncIterator, Optional
 
 import httpx
 from langchain_openai import ChatOpenAI
 
 from .config import settings
+from .metrics import LLM_REQUEST_DURATION, LLM_REQUESTS
 from .redis_client import get_redis
+from .resilience import open_resilient_stream, with_resilience
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +145,9 @@ class LLMClient:
             cached = await self._get_cache(cache_key)
             if cached:
                 logger.info("LLM 缓存命中: %s", cache_key)
+                LLM_REQUESTS.labels(
+                    model=model, service="cache", mode="sync", status="cache_hit"
+                ).inc()
                 return cached
 
         payload = {
@@ -151,25 +157,45 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
+        # 统一走 resilience（熔断+超时+重试）；service 按调用目标隔离
         if self._is_local_model(model):
             # 本地微调模型：Ollama 使用 LOCAL_LLM_MODEL 作为实际模型名
             payload["model"] = settings.LOCAL_LLM_MODEL
             client = self._get_local_client()
-            response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-            result = response.json()
+            service, read_timeout = "local_model", 120.0
         elif self._use_proxy:
             client = self._get_client()
-            response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-            result = response.json()
+            service, read_timeout = "litellm", settings.LLM_CALL_TIMEOUT
         else:
             api_model = DEEPSEEK_MODELS.get(model, model)
             payload["model"] = api_model
             client = self._get_direct_client()
+            service, read_timeout = "llm_deepseek", 60.0
+
+        async def _do_request() -> dict:
             response = await client.post("/chat/completions", json=payload)
             response.raise_for_status()
-            result = response.json()
+            return response.json()
+
+        started = time.perf_counter()
+        try:
+            result = await with_resilience(
+                service, _do_request, timeout=read_timeout
+            )
+        except Exception:
+            LLM_REQUESTS.labels(
+                model=payload["model"], service=service, mode="sync", status="error"
+            ).inc()
+            LLM_REQUEST_DURATION.labels(
+                model=payload["model"], service=service, mode="sync"
+            ).observe(time.perf_counter() - started)
+            raise
+        LLM_REQUESTS.labels(
+            model=payload["model"], service=service, mode="sync", status="success"
+        ).inc()
+        LLM_REQUEST_DURATION.labels(
+            model=payload["model"], service=service, mode="sync"
+        ).observe(time.perf_counter() - started)
 
         if cache_key and result.get("choices"):
             await self._set_cache(cache_key, result)
@@ -195,51 +221,59 @@ class LLMClient:
             # 本地微调模型：Ollama OpenAI 兼容流式接口
             payload["model"] = settings.LOCAL_LLM_MODEL
             client = self._get_local_client()
-            async with client.stream("POST", "/chat/completions", json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        yield chunk
-                    except json.JSONDecodeError:
-                        continue
+            service = "local_model"
         elif self._use_proxy:
             client = self._get_client()
-            async with client.stream("POST", "/chat/completions", json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        yield chunk
-                    except json.JSONDecodeError:
-                        continue
+            service = "litellm"
         else:
             api_model = DEEPSEEK_MODELS.get(model, model)
             payload["model"] = api_model
             client = self._get_direct_client()
-            async with client.stream("POST", "/chat/completions", json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        yield chunk
-                    except json.JSONDecodeError:
-                        continue
+            service = "llm_deepseek"
+
+        # 仅在拿到响应头（首字节）之前做熔断/超时/重试；
+        # 一旦开始迭代，中途断流不再重试（避免重复生成/重复计费）。
+        started = time.perf_counter()
+        cm = None
+        try:
+            cm, response = await open_resilient_stream(
+                service,
+                lambda: client.stream("POST", "/chat/completions", json=payload),
+            )
+        except Exception:
+            LLM_REQUESTS.labels(
+                model=payload["model"], service=service, mode="stream", status="error"
+            ).inc()
+            LLM_REQUEST_DURATION.labels(
+                model=payload["model"], service=service, mode="stream"
+            ).observe(time.perf_counter() - started)
+            raise
+        LLM_REQUESTS.labels(
+            model=payload["model"], service=service, mode="stream", status="success"
+        ).inc()
+        LLM_REQUEST_DURATION.labels(
+            model=payload["model"], service=service, mode="stream"
+        ).observe(time.perf_counter() - started)
+        try:
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    yield chunk
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            # 必须退出上下文管理器本体（而非仅 aclose response），
+            # 否则 httpx 的 stream CM 会认为连接未正常归还。
+            if cm is not None:
+                try:
+                    await cm.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.debug("LLM 流式上下文关闭异常（忽略）：%s", e)
 
     async def health_check(self) -> dict:
         try:

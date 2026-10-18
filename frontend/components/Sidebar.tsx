@@ -2,18 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Scale, FileText, LayoutDashboard, Shield, BookOpen, LogIn, LogOut, FolderOpen, User } from 'lucide-react'
+import { MessagesSquare, FileText, Shield, LogIn, LogOut, User } from 'lucide-react'
 import { useChatStore } from '@/store/useChatStore'
 import { clearToken, getUsername } from '@/app/lib/api'
 import { useState, useEffect } from 'react'
 
 const navItems = [
-  { name: '工作空间', icon: LayoutDashboard, href: '/dashboard' },
-  { name: '智能咨询', icon: MessageSquare, href: '/chat' },
-  { name: '模拟法庭', icon: Scale, href: '/court' },
+  { name: '消息中心', icon: MessagesSquare, href: '/messages' },
   { name: '合同审查', icon: FileText, href: '/documents' },
-  { name: '法律知识库', icon: BookOpen, href: '/knowledge' },
-  { name: '案件记忆', icon: FolderOpen, href: '/cases' },
 ]
 
 interface SidebarProps {

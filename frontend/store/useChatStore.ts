@@ -210,6 +210,26 @@ function saveSessions(sessions: Session[]) {
   }
 }
 
+/**
+ * 从 localStorage 恢复当前用户的会话数据与模型偏好（按用户名隔离）。
+ *
+ * 修复「已登录用户刷新后数据丢失」：此前仅在登录成功（setAuthed）时加载，
+ * 刷新触发的 checkAuth 只置 authed 标志、不恢复数据，导致会话/消息被清空。
+ * 登录成功与刷新恢复都复用本函数（D16）。
+ */
+function restoreUserData() {
+  const sessions = loadSessions()
+  const currentSessionId = sessions[0]?.id || null
+  const messages = sessions[0]?.messages || []
+  return {
+    sessions,
+    currentSessionId,
+    messages,
+    rightPanelData: buildRightPanelData(messages),
+    selectedModel: loadSelectedModel(),
+  }
+}
+
 interface ChatState {
   messages: Message[]
   currentCase: Case | null
@@ -358,22 +378,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
-  checkAuth: () => set({ authed: isAuthenticated() }),
+  checkAuth: () => {
+    if (isAuthenticated()) {
+      // 刷新/重进页面：Token 仍在 → 同时恢复当前用户数据（D16），而非仅置标志
+      set({ authed: true, error: null, ...restoreUserData() })
+    } else {
+      set({ authed: false })
+    }
+  },
 
   setAuthed: (authed) => {
     if (authed) {
       // 登录后加载当前用户的会话数据与模型偏好（按用户名隔离）
-      const sessions = loadSessions()
-      const currentSessionId = sessions[0]?.id || null
-      const messages = sessions[0]?.messages || []
-      const rightPanelData = buildRightPanelData(messages)
       set({
         authed: true,
-        sessions,
-        currentSessionId,
-        messages,
-        rightPanelData,
-        selectedModel: loadSelectedModel(),
+        ...restoreUserData(),
         currentCase: null,
         error: null,
       })

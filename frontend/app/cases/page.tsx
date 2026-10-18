@@ -136,10 +136,10 @@ export default function CasesPage() {
     } else if (c.type === 'chat') {
       deleteChatHistory(c.id)
     } else if (c.type === 'contract') {
-      const raw = localStorage.getItem('legalmind_contract_reviews')
+      const raw = localStorage.getItem(getStorageKey(CONTRACT_REVIEWS_KEY))
       if (raw) {
         const existing = JSON.parse(raw)
-        localStorage.setItem('legalmind_contract_reviews', JSON.stringify(existing.filter((r: { id: string }) => r.id !== c.id)))
+        localStorage.setItem(getStorageKey(CONTRACT_REVIEWS_KEY), JSON.stringify(existing.filter((r: { id: string }) => r.id !== c.id)))
       }
     }
     refresh()

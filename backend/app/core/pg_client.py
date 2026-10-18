@@ -1,16 +1,36 @@
 """
-PostgreSQL + pgvector 三库架构 — 法官库 / 律师库 / 法条库
+PostgreSQL + pgvector 四库架构 — 法官库 / 律师库 / 法条库 / 协同应用库
 
 judge_db: 裁判文书、判例、量刑标准、审判流程
 lawyer_db: 辩护策略、证据规则、合同审查模板、代理词
 law_db: 法律法规、司法解释、部门规章
+legalmind_app: 协同会话/成员/消息、Agent 注册表、案情模板、长期记忆、编排台账（D2 独立新库）
+
+注意：知识库模型挂在 Base（含 pgvector Vector 列），应用模型挂在独立的 AppBase；
+两套 metadata 绝不混用，否则 create_all 会把 vector 表建进无 vector 扩展的应用库。
 """
 import logging
+import uuid
 from datetime import date, datetime
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, DateTime, Integer, String, Text, func, select, text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    Uuid,
+    func,
+    select,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -19,7 +39,7 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 三库独立引擎
+# 四库独立引擎
 # ============================================================
 
 judge_engine = create_async_engine(
@@ -46,6 +66,16 @@ law_engine = create_async_engine(
     echo=False,
 )
 
+# 协同应用库：连接池单独配置（会话高频短事务）
+app_engine = create_async_engine(
+    settings.PG_APP_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    echo=False,
+)
+
+# 知识库三引擎（metadata 含 pgvector 表）
 ENGINES = {
     "judge": judge_engine,
     "lawyer": lawyer_engine,
@@ -53,15 +83,20 @@ ENGINES = {
 }
 
 
-
-
-# 三库 session factory
+# 知识库三库 session factory
 judge_session_factory = async_sessionmaker(judge_engine, expire_on_commit=False)
 lawyer_session_factory = async_sessionmaker(lawyer_engine, expire_on_commit=False)
 law_session_factory = async_sessionmaker(law_engine, expire_on_commit=False)
+# 协同应用库 session factory
+app_session_factory = async_sessionmaker(app_engine, expire_on_commit=False)
+
 
 class Base(DeclarativeBase):
-    pass
+    """知识库三库 metadata（含 pgvector Vector 列，不可对应用库 create_all）"""
+
+
+class AppBase(DeclarativeBase):
+    """legalmind_app 应用表 metadata（与 sql/init/04-app-schema.sql 对齐）"""
 
 
 # ============================================================
@@ -248,22 +283,227 @@ class AdministrativeRegulation(Base):
 
 
 # ============================================================
+# legalmind_app — 协同应用库（与 04-app-schema.sql 对齐）
+# ============================================================
+
+class Conversation(AppBase):
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    type: Mapped[str] = mapped_column(String(16), nullable=False)  # direct/group
+    case_type: Mapped[Optional[str]] = mapped_column(String(32))
+    title: Mapped[Optional[str]] = mapped_column(String(256))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    # B3：用户扮演的 agent_id（空＝不扮演，仅 group 有效，D11 接管式扮演）
+    my_role: Mapped[Optional[str]] = mapped_column(String(64))
+    # B1：单聊目标 Agent（仅 direct 有效，T1.5 执行「单聊只调该 Agent」）
+    target_agent_id: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ConversationMember(AppBase):
+    __tablename__ = "conversation_members"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")  # host/member
+    is_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Message(AppBase):
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    sender_type: Mapped[str] = mapped_column(String(16), nullable=False)  # user/agent/system
+    sender_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sender_name: Mapped[Optional[str]] = mapped_column(String(128))
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    msg_type: Mapped[str] = mapped_column(String(16), nullable=False, default="text")
+    round: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 确定性幂等键（T1.5）：{turn_id}:r{round}:{agent_id}:{seq}，唯一索引防重复落库
+    event_key: Mapped[Optional[str]] = mapped_column(String(128))
+    # 时间旅行（F12）：SQL 未加 FK，分支消息可指向任意父消息
+    fork_parent_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    msg_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AgentRegistry(AppBase):
+    __tablename__ = "agent_registry"
+
+    agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    avatar: Mapped[Optional[str]] = mapped_column(String(256))
+    role_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    skill_ref: Mapped[Optional[str]] = mapped_column(String(128))
+    persona: Mapped[Optional[str]] = mapped_column(Text)
+    model_pref: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    is_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaseRosterTemplate(AppBase):
+    __tablename__ = "case_roster_templates"
+
+    case_type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    icon: Mapped[Optional[str]] = mapped_column(String(32))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    host_agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    roster: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    max_rounds: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    opening_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    minutes_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    adapter: Mapped[str] = mapped_column(String(32), nullable=False, default="generic")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Memory(AppBase):
+    __tablename__ = "memories"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)  # user/case
+    case_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    memory_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    importance: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
+    source_conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    source_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    embedding_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CollabTurn(AppBase):
+    __tablename__ = "collab_turns"
+
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # running/interrupted/completed/failed
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="inprocess")
+    worker_id: Mapped[Optional[str]] = mapped_column(String(128))
+    worker_heartbeat: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_checkpoint_id: Mapped[Optional[str]] = mapped_column(String(128))
+    error: Mapped[Optional[dict]] = mapped_column(JSONB)
+    forked_from_turn_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class HostDecision(AppBase):
+    __tablename__ = "host_decisions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("collab_turns.turn_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    host_agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_output: Mapped[Optional[str]] = mapped_column(Text)
+    parsed_directive: Mapped[Optional[dict]] = mapped_column(JSONB)
+    accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(64))
+    request_id: Mapped[Optional[str]] = mapped_column(String(64))
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+# ============================================================
 # 生命周期管理
 # ============================================================
 
 async def init_pg():
-    """初始化三库连接池并建表"""
+    """初始化四库连接池并建表（知识库与应用库使用各自独立的 metadata）"""
     for name, engine in ENGINES.items():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("[%s] 数据库连接池初始化完成", name)
 
+    # 应用库：只建 AppBase 的表（权威 schema 见 04-app-schema.sql，create_all 仅补缺）
+    async with app_engine.begin() as conn:
+        await conn.run_sync(AppBase.metadata.create_all)
+    logger.info("[app] 数据库连接池初始化完成")
+
 
 async def close_pg():
-    """关闭三库连接池"""
+    """关闭四库连接池"""
     for name, engine in ENGINES.items():
         await engine.dispose()
         logger.info("[%s] 数据库连接池已关闭", name)
+    await app_engine.dispose()
+    logger.info("[app] 数据库连接池已关闭")
 
 
 # ============================================================

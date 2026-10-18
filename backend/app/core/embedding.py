@@ -44,6 +44,18 @@ def get_embedding_model() -> SentenceTransformer:
     if _embedding_model is None:
         model_name = _resolve_model_path(settings.EMBEDDING_MODEL)
         device = settings.EMBEDDING_DEVICE
+        # 配置了 cuda 但容器未透传 GPU 时自动回退 CPU，避免 SentenceTransformer 直接失败
+        if str(device).startswith("cuda"):
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    logger.warning(
+                        "EMBEDDING_DEVICE=%s 但 CUDA 不可用（未透传 GPU？），回退 CPU",
+                        device,
+                    )
+                    device = "cpu"
+            except Exception:  # noqa: BLE001
+                device = "cpu"
         logger.info("加载 Qwen 嵌入模型: %s (device=%s)", model_name, device)
 
         # 优先离线加载（避免网络不可达导致失败）
