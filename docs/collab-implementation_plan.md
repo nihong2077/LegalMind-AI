@@ -745,13 +745,14 @@ LiteLLM 透传注入，后端不接触真实 key。
 
 **Step1（客户端 + 透传 + 单测）✅**
 - [core/web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py)（新）：
-  `WebSearchClient.search_web()/fetch_url()`，**透传优先 + 直连回退**双链路，可重试错误
+  `WebSearchClient.search_web()/fetch_url()`，**仅经 LiteLLM 透传**（原「透传优先 + 直连回退」的直连链路已于
+  密钥隔离收口时移除，未配代理 fail-closed），可重试错误
   （408/429/5xx/超时）按 `WEB_SEARCH_MAX_ATTEMPTS` 退避；`normalize_search_result`
   按 `content→summary→snippet` 回退；`WebSearchError`。
 - `core/config.py` 新增 `WEB_SEARCH_*`（ENABLED/COUNT/TOP_N/TIMEOUT/MAX_ATTEMPTS/NEED_CONTENT），
   `core/metrics.py` 新增 `legalmind_web_search_calls_total{op,mode,status}`，
   `litellm/config.yaml` 新增 `/v1/tools/search|fetch` 透传端点（`Bearer os.environ/DEEPSEEK_API_KEY`）。
-- `tests/test_web_search.py`（11 用例，httpx.MockTransport）。
+- `tests/test_web_search.py`（10 用例，httpx.MockTransport；直连回退相关用例已随链路移除改写）。
 
 **Step2（发言前置决策 + 引用卡 + 资料块 + 单测）✅**
 - [services/collab/web_decision.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/web_decision.py)（新）：
@@ -782,7 +783,8 @@ AgentNodeRunner 并入资料块/未注入行为不变）；全量后端 **334 pa
   （湖南高院涉彩礼典型案例、涉彩礼纠纷司法解释等），含 `title/url/content/site_name`；
 - Fetch：`client.fetch_url(<真实法条页>)` 真实返回 `title` + 正文 **5744 字符**；
 - 本机未起 LiteLLM、`LITELLM_VIRTUAL_KEY` 为空 → `_use_proxy=False`，
-  自动走**直连回退**链路（`_use_direct=True`）即成功，验证「透传优先 + 直连回退」双链路成立。
+  当时自动走**直连回退**链路（`_use_direct=True`）即成功，验证「透传优先 + 直连回退」双链路成立。
+  ⚠️ 该直连链路已在后续**密钥隔离收口**中移除（见 §3.28），当前仅经 LiteLLM 透传。
 - 验证脚本为一次性临时件，跑完即删（未入库、未落盘密钥）。
 
 **遗留**：无。
@@ -1069,6 +1071,27 @@ prometheus job 与 `deploy/observability` 目录结构均与仓库一致；修�
 
 **验证**：文档为纯 Markdown 事实描述，无代码变更；抽查命令（`wc -l`、route decorator 枚举、
 `ls backend/sql/init`、`find deploy/observability`、镜像/端口 grep）均已逐项比对通过。
+
+### 3.28 密钥隔离收口·代码层 ✅ —— 后端禁止直连厂商 LLM
+
+在 §3.27 收口配置层（compose / env）之后，进一步移除**代码层**的「直连厂商」能力，使后端**只能**经 LiteLLM：
+
+- [llm_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/llm_client.py)：删除
+  `DEEPSEEK_API_BASE` / `DEEPSEEK_MODELS` / `_get_direct_client`，以及 `get_chat_model` / `chat` / `chat_stream`
+  的直连分支；未配置代理（`LITELLM_PROXY_URL` + `LITELLM_VIRTUAL_KEY`）时一律 `raise`（fail-closed），
+  `health_check` 直接返回 `unhealthy`。
+- [web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py)：删除直连链路
+  （`MODE_DIRECT` / `_use_direct` / `_get_direct_client` / `deepseek_key`），改为**仅经 LiteLLM 透传**；未配代理抛
+  `WebSearchError`。
+- [config.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/config.py)：删除已无引用的
+  `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` 字段，避免配置面保留厂商 key 入口。
+  （注：`SettingsConfigDict` 默认 `extra="forbid"`，故必须同步移除 `backend/.env` 中的该变量，否则启动即校验失败。）
+- `backend/.env`：移除后端侧真实 `DEEPSEEK_API_KEY`（同一 key 仍保留在根 `.env`，供 litellm 容器消费）。
+
+**前置条件（本地开发）**：须设置 `LITELLM_VIRTUAL_KEY` 并启动 litellm，方可调用 LLM——此前未配 key 会**静默直连**，
+现改为 fail-closed。
+**验证**：`tests/test_web_search.py` 直连用例改写为 fail-closed 断言；`test_web_search.py + test_llm_client.py`
+**18 passed**；全量后端回归见 §3.28 提交记录。
 
 ### P2 — 长期记忆（Codex 式）
 

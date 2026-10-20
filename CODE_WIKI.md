@@ -163,11 +163,11 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 |---------|------|---------|
 | 模型标识 == `legalmind-ft` | 本地接口（Ollama/llama.cpp，`LOCAL_LLM_API_BASE`） | `LOCAL_LLM_MODEL` |
 | 配置了 LiteLLM URL + Virtual Key | LiteLLM Proxy（`LITELLM_PROXY_URL`） | 透传模型名 |
-| 其他（直连） | `https://api.deepseek.com/v1` | 映射表（均→`deepseek-chat`） |
+| 其余（未配置代理） | 直接 raise（fail-closed） | —（**绝不直连厂商 API**） |
 
-模型映射表 `DEEPSEEK_MODELS`：`deepseek-v4-pro`、`deepseek-flash` 均映射到云端 `deepseek-chat`。
+后端不直连厂商 API：未配置 LiteLLM 代理时 `get_chat_model` / `chat` / `chat_stream` 一律抛错，`health_check` 返回 `unhealthy`。
 
-所有出站 LLM 调用统一经 `core/resilience.py` 包装（按服务名 `litellm`/`llm_deepseek`/`local_model`/`ocr`/`qdrant` 走 per-service Redis 熔断器，fail-open），流式重试仅在首字节到达前允许，避免重复生成与重复计费。生产环境后端**不直持 LLM 密钥**，一律经内部 LiteLLM 透传。
+所有出站 LLM 调用统一经 `core/resilience.py` 包装（按服务名 `litellm`/`local_model`/`ocr`/`qdrant` 走 per-service Redis 熔断器，fail-open），流式重试仅在首字节到达前允许，避免重复生成与重复计费。后端**不持有 LLM 密钥**，一律经内部 LiteLLM 透传。
 
 ---
 
@@ -196,8 +196,8 @@ LegalMind AI/
 │   │   │   ├── qdrant_client.py    # Qdrant 客户端 + Collection
 │   │   │   ├── embedding.py        # Qwen3-Embedding 嵌入服务
 │   │   │   ├── reranker.py         # Qwen3-Reranker 重排序
-│   │   │   ├── web_search.py       # 联网检索（透传优先 + 直连回退）
-│   │   │   └── llm_client.py       # LLM 统一客户端（三路由）
+│   │   │   ├── web_search.py       # 联网检索（仅经 LiteLLM 透传）
+│   │   │   └── llm_client.py       # LLM 统一客户端（两路由：本地微调 / LiteLLM 代理）
 │   │   ├── routers/
 │   │   │   ├── gateway.py          # 旧端点集合（含 deprecated 兼容端点）
 │   │   │   ├── conversations.py    # 会话/消息/成员/接管/转发/纪要/checkpoint/fork
@@ -399,14 +399,14 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 
 #### 5.2.5 LLM 客户端：[llm_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/llm_client.py)
 
-`LLMClient` 类，三套 httpx 客户端单例（Proxy / 直连 / 本地）。
+`LLMClient` 类，两套 httpx 客户端单例（LiteLLM Proxy / 本地微调）。
 
 | 方法 | 签名 | 职责/副作用 |
 |------|------|-----------|
-| `get_chat_model` | `(model, temperature, max_tokens, streaming) -> ChatOpenAI` | 返回 LangChain ChatOpenAI（按三路由配置） |
+| `get_chat_model` | `(model, temperature, max_tokens, streaming) -> ChatOpenAI` | 返回 LangChain ChatOpenAI（本地微调 / LiteLLM 代理两路由；未配代理抛错） |
 | `chat` | `async (model, messages, temperature, max_tokens, cache_key) -> dict` | 同步对话；支持 Redis 缓存（TTL 1h） |
 | `chat_stream` | `async (model, messages, ...) -> AsyncIterator[dict]` | 流式对话 |
-| `health_check` | 直连/代理健康检查 |
+| `health_check` | LiteLLM 代理健康检查（未配代理返回 `unhealthy`） |
 | `local_health_check` | 检查本地模型服务与已加载模型 |
 | `list_models` | 列举 Proxy 模型 |
 | `close` | 关闭所有客户端 |
@@ -469,7 +469,7 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 |------|---------|------|
 | [embedding.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/embedding.py) | `embed_text` / `embed_texts` / `compute_similarity` | Qwen3-Embedding（离线优先加载，归一化向量，线程池异步） |
 | [reranker.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/reranker.py) | `rerank_documents` | Qwen3-Reranker 精排（query-doc 对打分，失败回退原序） |
-| [web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py) | `search_web` / `fetch_url` | 联网检索（DeepSeek 官方 API 经 LiteLLM 透传优先，失败回退直连；408/429/5xx 退避重试，4xx 不重试直接抛 `WebSearchError`） |
+| [web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py) | `search_web` / `fetch_url` | 联网检索（DeepSeek 官方 API **仅经 LiteLLM 透传**；未配置代理 fail-closed；408/429/5xx 退避重试，4xx 不重试直接抛 `WebSearchError`） |
 
 #### 5.2.9 新增核心模块
 

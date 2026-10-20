@@ -51,9 +51,6 @@ class Settings(BaseSettings):
     LLM_CALL_TIMEOUT: float = 30.0       # 普通 LLM 调用读超时
     LLM_STREAM_CONNECT_TIMEOUT: float = 30.0  # 流式首字节（响应头）超时；迭代读沿用 client 120s
 
-    OPENAI_API_KEY: str = ""
-    DEEPSEEK_API_KEY: str = ""
-
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LITELLM_VIRTUAL_KEY: str = ""
 

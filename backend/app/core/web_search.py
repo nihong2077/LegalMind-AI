@@ -6,18 +6,14 @@
   （``title/url/snippet/summary/content/site_name/date/authority/rerank_score``）；
 - ``POST /v1/tools/fetch``：抓取指定 URL 正文（Markdown，``title/content``）。
 
-**路由策略（透传优先 + 直连回退）**：
+**路由策略（仅经 LiteLLM 透传）**：一律经 **LiteLLM 代理**
+（``litellm/config.yaml`` 的 ``pass_through_endpoints``）以 **虚拟 key** 调用——
+DeepSeek 真实 key 由代理侧注入（``os.environ/DEEPSEEK_API_KEY``），后端全程不接触真实 key，
+遵守密钥隔离约束；**未配置代理时直接抛 :class:`WebSearchError`，绝不直连厂商 API**。
 
-1. 优先经 **LiteLLM 代理**（``litellm/config.yaml`` 的 ``pass_through_endpoints``）以
-   **虚拟 key** 调用——DeepSeek 真实 key 由代理侧注入（``os.environ/DEEPSEEK_API_KEY``），
-   后端全程不接触真实 key，遵守密钥隔离约束；
-2. LiteLLM 未启动 / 未配置 / 透传失败时，回退为以 ``DEEPSEEK_API_KEY`` **直连**
-   ``api.deepseek.com``，保证本地开发（LiteLLM 常未运行）仍可用。
-
-**失败语义**：可重试错误（408/429/5xx 与连接/超时）在同一条链路上按
-``WEB_SEARCH_MAX_ATTEMPTS`` 重试；重试耗尽或链路不可用则换下一条链路；
-两条链路都失败才抛 :class:`WebSearchError`。**明确客户端错误（4xx，除 408/429）不重试也不回退**，
-避免遮蔽真实参数/鉴权问题。
+**失败语义**：可重试错误（408/429/5xx 与连接/超时）按 ``WEB_SEARCH_MAX_ATTEMPTS`` 退避重试；
+重试耗尽抛 :class:`WebSearchError`。**明确客户端错误（4xx，除 408/429）不重试**，避免遮蔽
+真实参数/鉴权问题。
 """
 from __future__ import annotations
 
@@ -32,8 +28,7 @@ from .metrics import WEB_SEARCH_CALLS
 
 logger = logging.getLogger(__name__)
 
-# DeepSeek 官方 API 根（search/fetch 与 chat 同域）
-DEEPSEEK_API_BASE = "https://api.deepseek.com"
+# DeepSeek 官方 API 路径（search/fetch 与 chat 同域，仅经 LiteLLM 透传访问）
 SEARCH_PATH = "/v1/tools/search"
 FETCH_PATH = "/v1/tools/fetch"
 
@@ -46,13 +41,12 @@ URL_MAX_LEN = 8192
 # 可重试状态码（对齐文档：408/429/5xx 可重试）
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
 
-# 链路标记（指标 label：proxy=透传 / direct=直连）
+# 链路标记（指标 label：proxy=透传）
 MODE_PROXY = "proxy"
-MODE_DIRECT = "direct"
 
 
 class WebSearchError(RuntimeError):
-    """联网检索最终失败（两条链路均不可用 / 重试耗尽）。"""
+    """联网检索最终失败（LiteLLM 透传不可用 / 重试耗尽）。"""
 
     def __init__(self, message: str, *, status_code: Optional[int] = None) -> None:
         super().__init__(message)
@@ -116,42 +110,30 @@ def normalize_search_result(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 class WebSearchClient:
-    """联网检索客户端（Search/Fetch）。测试可注入 ``proxy_client`` / ``direct_client``。"""
+    """联网检索客户端（Search/Fetch）。测试可注入 ``proxy_client``。"""
 
     def __init__(
         self,
         *,
         proxy_url: Optional[str] = None,
         virtual_key: Optional[str] = None,
-        deepseek_key: Optional[str] = None,
         timeout: Optional[float] = None,
         max_attempts: Optional[int] = None,
         retry_backoff: float = 0.5,
         proxy_client: Optional[httpx.AsyncClient] = None,
-        direct_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         self.proxy_url = (proxy_url or settings.LITELLM_PROXY_URL).rstrip("/")
         self.virtual_key = virtual_key or settings.LITELLM_VIRTUAL_KEY
-        self.deepseek_key = (
-            deepseek_key
-            if deepseek_key is not None
-            else (settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY)
-        )
         self.timeout = float(timeout if timeout is not None else settings.WEB_SEARCH_TIMEOUT)
         self.max_attempts = max(
             1, int(max_attempts if max_attempts is not None else settings.WEB_SEARCH_MAX_ATTEMPTS)
         )
         self.retry_backoff = retry_backoff
         self._proxy_client = proxy_client
-        self._direct_client = direct_client
 
     @property
     def _use_proxy(self) -> bool:
         return bool(self.virtual_key and self.proxy_url)
-
-    @property
-    def _use_direct(self) -> bool:
-        return bool(self.deepseek_key or self._direct_client is not None)
 
     def _get_proxy_client(self) -> httpx.AsyncClient:
         if self._proxy_client is None or self._proxy_client.is_closed:
@@ -165,22 +147,9 @@ class WebSearchClient:
             )
         return self._proxy_client
 
-    def _get_direct_client(self) -> httpx.AsyncClient:
-        if self._direct_client is None or self._direct_client.is_closed:
-            self._direct_client = httpx.AsyncClient(
-                base_url=DEEPSEEK_API_BASE,
-                headers={
-                    "Authorization": f"Bearer {self.deepseek_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=httpx.Timeout(self.timeout, connect=5.0),
-            )
-        return self._direct_client
-
     async def close(self) -> None:
-        for client in (self._proxy_client, self._direct_client):
-            if client is not None and not client.is_closed:
-                await client.aclose()
+        if self._proxy_client is not None and not self._proxy_client.is_closed:
+            await self._proxy_client.aclose()
 
     # ---------------- 对外接口 ----------------
 
@@ -232,37 +201,26 @@ class WebSearchClient:
     # ---------------- 内部：链路选择 + 重试 ----------------
 
     async def _request(self, path: str, payload: dict[str, Any], *, op: str) -> dict[str, Any]:
-        """透传优先、失败回退直连；两条链路均失败抛 :class:`WebSearchError`。"""
-        attempted: list[str] = []
-        last_error: Optional[BaseException] = None
+        """仅经 LiteLLM 透传；未配置代理或透传失败抛 :class:`WebSearchError`。"""
+        if not self._use_proxy:
+            raise WebSearchError(
+                f"{op} 失败：未配置 LiteLLM 代理（LITELLM_PROXY_URL / LITELLM_VIRTUAL_KEY）；"
+                "按密钥隔离约束，后端不直连厂商 API"
+            )
 
-        for mode in (MODE_PROXY, MODE_DIRECT):
-            if mode == MODE_PROXY and not self._use_proxy:
-                continue
-            if mode == MODE_DIRECT and not self._use_direct:
-                continue
-            client = self._get_proxy_client() if mode == MODE_PROXY else self._get_direct_client()
-            attempted.append(mode)
-            try:
-                return await self._request_with(client, path, payload, mode=mode, op=op)
-            except httpx.HTTPStatusError as e:
-                code = e.response.status_code
-                # 明确客户端错误（参数/鉴权）：不重试、不回退，直接暴露
-                if code not in RETRYABLE_STATUS:
-                    WEB_SEARCH_CALLS.labels(op=op, mode=mode, status="error").inc()
-                    raise WebSearchError(_error_message(e.response), status_code=code) from e
-                last_error = e
-            except Exception as e:  # 链路不可用（未启动/连接失败/重试耗尽）
-                last_error = e
-            logger.warning("[web_search] %s 链路(%s)失败，尝试下一条链路：%s", op, mode, last_error)
-
-        if last_error is None:
-            raise WebSearchError(f"{op} 失败：未配置可用链路（LiteLLM 透传 / DeepSeek 直连）")
-        if isinstance(last_error, WebSearchError):
-            raise last_error
-        raise WebSearchError(
-            f"{op} 失败（已尝试链路：{','.join(attempted) or '无'}）：{last_error}"
-        ) from last_error
+        client = self._get_proxy_client()
+        try:
+            return await self._request_with(client, path, payload, mode=MODE_PROXY, op=op)
+        except httpx.HTTPStatusError as e:
+            # 明确客户端错误（参数/鉴权）：不重试，直接暴露
+            WEB_SEARCH_CALLS.labels(op=op, mode=MODE_PROXY, status="error").inc()
+            raise WebSearchError(
+                _error_message(e.response), status_code=e.response.status_code
+            ) from e
+        except WebSearchError:
+            raise
+        except Exception as e:  # 透传链路不可用（未启动/连接失败/重试耗尽）
+            raise WebSearchError(f"{op} 失败（链路：LiteLLM 透传）：{e}") from e
 
     async def _request_with(
         self,

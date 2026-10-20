@@ -658,7 +658,7 @@ cd backend && source venv/bin/activate
 pytest            # 33 个测试模块
 ```
 
-最近一次全量结果：**334 passed**。覆盖 API 信封、鉴权、RAG 检索（稠密/稀疏合并与 payload 内容提升）、LangGraph 拓扑、调度与主持分派、工具辐条、轮次分隔条、联网检索客户端与前置决策、记忆流水线，以及 worker 的 DLQ 路由。
+最近一次全量结果：**368 passed**。覆盖 API 信封、鉴权、RAG 检索（稠密/稀疏合并与 payload 内容提升）、LangGraph 拓扑、调度与主持分派、工具辐条、轮次分隔条、联网检索客户端与前置决策、记忆流水线，以及 worker 的 DLQ 路由。
 
 ## 文档地图
 

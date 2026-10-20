@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 LITELLM_CACHE_PREFIX = "legalmind:llm_cache:"
 CACHE_TTL = 3600
 
-DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
-DEEPSEEK_MODELS = {
-    "deepseek-v4-pro": "deepseek-chat",
-    "deepseek-flash": "deepseek-chat",
-}
+# 密钥隔离：后端不直连厂商 LLM API，未配置 LiteLLM 代理时一律 fail-closed。
+_PROXY_REQUIRED_MSG = (
+    "未配置 LiteLLM 代理（LITELLM_PROXY_URL / LITELLM_VIRTUAL_KEY）；"
+    "按密钥隔离约束，后端禁止直连厂商 LLM API"
+)
 
 # 前端选择"法律领域微调模型"时发送的模型标识
 LOCAL_FT_MODEL = "legalmind-ft"
@@ -35,7 +35,6 @@ class LLMClient:
         self.proxy_url = (proxy_url or settings.LITELLM_PROXY_URL).rstrip("/")
         self.virtual_key = virtual_key or settings.LITELLM_VIRTUAL_KEY
         self._client: Optional[httpx.AsyncClient] = None
-        self._direct_client: Optional[httpx.AsyncClient] = None
         self._local_client: Optional[httpx.AsyncClient] = None
 
     @property
@@ -59,20 +58,6 @@ class LLMClient:
             )
         return self._client
 
-    def _get_direct_client(self) -> httpx.AsyncClient:
-        """直连 DeepSeek API 的客户端（单例复用）"""
-        if self._direct_client is None or self._direct_client.is_closed:
-            deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
-            self._direct_client = httpx.AsyncClient(
-                base_url=DEEPSEEK_API_BASE,
-                headers={
-                    "Authorization": f"Bearer {deepseek_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=httpx.Timeout(60.0, connect=10.0),
-            )
-        return self._direct_client
-
     def _get_local_client(self) -> httpx.AsyncClient:
         """本地微调模型客户端（Ollama OpenAI 兼容接口，单例复用）"""
         if self._local_client is None or self._local_client.is_closed:
@@ -89,8 +74,6 @@ class LLMClient:
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
-        if self._direct_client and not self._direct_client.is_closed:
-            await self._direct_client.aclose()
         if self._local_client and not self._local_client.is_closed:
             await self._local_client.aclose()
 
@@ -122,16 +105,7 @@ class LLMClient:
                 streaming=streaming,
             )
 
-        deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
-        api_model = DEEPSEEK_MODELS.get(model, model)
-        return ChatOpenAI(
-            model=api_model,
-            openai_api_base=DEEPSEEK_API_BASE,
-            openai_api_key=deepseek_key,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            streaming=streaming,
-        )
+        raise RuntimeError(_PROXY_REQUIRED_MSG)
 
     async def chat(
         self,
@@ -167,10 +141,7 @@ class LLMClient:
             client = self._get_client()
             service, read_timeout = "litellm", settings.LLM_CALL_TIMEOUT
         else:
-            api_model = DEEPSEEK_MODELS.get(model, model)
-            payload["model"] = api_model
-            client = self._get_direct_client()
-            service, read_timeout = "llm_deepseek", 60.0
+            raise RuntimeError(_PROXY_REQUIRED_MSG)
 
         async def _do_request() -> dict:
             response = await client.post("/chat/completions", json=payload)
@@ -226,10 +197,7 @@ class LLMClient:
             client = self._get_client()
             service = "litellm"
         else:
-            api_model = DEEPSEEK_MODELS.get(model, model)
-            payload["model"] = api_model
-            client = self._get_direct_client()
-            service = "llm_deepseek"
+            raise RuntimeError(_PROXY_REQUIRED_MSG)
 
         # 仅在拿到响应头（首字节）之前做熔断/超时/重试；
         # 一旦开始迭代，中途断流不再重试（避免重复生成/重复计费）。
@@ -276,19 +244,14 @@ class LLMClient:
                     logger.debug("LLM 流式上下文关闭异常（忽略）：%s", e)
 
     async def health_check(self) -> dict:
+        if not self._use_proxy:
+            return {"status": "unhealthy", "error": _PROXY_REQUIRED_MSG}
         try:
-            if self._use_proxy:
-                client = self._get_client()
-                response = await client.get("/health/liveliness")
-                if response.status_code == 200:
-                    return {"status": "healthy", "proxy_url": self.proxy_url}
-                return {"status": "degraded", "status_code": response.status_code}
-            else:
-                # 直连模式：简单验证 API Key 是否配置
-                deepseek_key = settings.OPENAI_API_KEY or settings.DEEPSEEK_API_KEY
-                if deepseek_key:
-                    return {"status": "healthy", "mode": "direct", "api_base": DEEPSEEK_API_BASE}
-                return {"status": "unhealthy", "error": "未配置 DEEPSEEK_API_KEY"}
+            client = self._get_client()
+            response = await client.get("/health/liveliness")
+            if response.status_code == 200:
+                return {"status": "healthy", "proxy_url": self.proxy_url}
+            return {"status": "degraded", "status_code": response.status_code}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
 

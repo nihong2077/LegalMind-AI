@@ -213,6 +213,9 @@ docker compose up -d fastapi
 | `WEB_SEARCH_TIMEOUT` / `WEB_SEARCH_MAX_ATTEMPTS` | `20.0` / `2` | 读超时 / 可重试错误最大尝试 |
 | `WEB_SEARCH_NEED_CONTENT` | `false` | 是否抓取正文 |
 
+> 联网检索**仅经 LiteLLM 透传**（`/v1/tools/search|fetch` 由代理侧注入真实 key）；未配置
+> `LITELLM_PROXY_URL`/`LITELLM_VIRTUAL_KEY` 时 fail-closed 抛 `WebSearchError`，**后端不直连厂商 API**。
+
 ### 5.11 日志
 | 变量 | 默认值 | 说明 |
 |---|---|---|
