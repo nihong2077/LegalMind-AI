@@ -94,22 +94,22 @@
 
 | ID | 任务 | 主要文件 | 验收 |
 |---|---|---|---|
-| T0.1 | 版本与镜像对齐：Dockerfile→python:3.12-slim；requirements 锁 `langgraph>=1.2,<2`、新增 aiokafka/tenacity/structlog/langgraph-checkpoint-postgres/opentelemetry-* | `backend/Dockerfile`、`backend/requirements.txt` | 镜像构建成功；`pip check` 通过 |
-| T0.2 | 新库与 schema：PG 建 `legalmind_app`；`04-app-schema.sql`（conversations/conversation_members/messages/agent_registry/case_roster_templates/memories/collab_turns/host_decisions）；种子 10 Agent + 8 模板 | `sql/init/00-create-dbs.sql`（加库）、`sql/init/04-app-schema.sql`（新）、种子 SQL | 全新 compose up 自动建库建表、种子可查 |
-| T0.3 | pg_client 加第四引擎 app_engine + app_session_factory + ORM 模型 | `core/pg_client.py`、`core/config.py`（APP_DB_URL） | 四引擎 init/close 通过 |
-| T0.4 | 统一信封与错误码：`ApiResponse{code,message,data,request_id}`、`core/errors.py` 错误码枚举（0/401xx/429xx/502xx/503xx/504xx/50901…）、业务异常、全局处理器 | `core/response.py`、`core/errors.py`、`main.py` | 单测覆盖各错误码映射 |
-| T0.5 | resilience：tenacity 异步重试（0.5/1/2s+jitter，3 次，仅幂等/首字节前）、超时分层（5/30/120/300s）、按服务名复用熔断器、降级链；接入 llm_client 与 ocr_service | `core/resilience.py`（新）、改 `llm_client.py`、`ocr_service.py` | 注入 500 验重试次数与 50301 熔断 |
-| T0.6 | structlog JSON + X-Request-ID 中间件（contextvar 贯穿，Kafka header/Redis payload/前端短码） | `core/logging.py`（新）、`main.py` | 日志 grep 同一 request_id 跨组件 |
-| T0.7 | OTel 常开：FastAPI/httpx/SQLAlchemy 自动埋点 + W3C traceparent；compose 加 jaeger(all-in-one,:16686)；worker 同配置 | `core/tracing.py`（新）、`main.py`、compose | Jaeger 可见一条 HTTP→LLM trace；关 jaeger 容器业务正常 |
-| T0.8 | Kafka 接入：apache/kafka:3.7.2 KRaft 服务 + 3 topic(collab-turns/memory-events/doc-tasks)×3 partition；`core/events.py` aiokafka 封装（懒连、失败降级不阻断）；ENABLE_KAFKA 开关 | docker-compose.yml、`core/events.py`、`.env.example` | 开关 false 可正常启动；true 时收发自测通过 |
-| T0.9 | LangGraph Checkpointer：AsyncPostgresSaver 连 legalmind_app，startup `setup()` 建 checkpoint 表 | `core/checkpoint.py`（新）、`main.py` | 中断的图状态可在 PG 三表中查到 |
-| T0.10 | Worker 骨架：`worker/main.py --role`、:8001 healthz/metrics、10s Redis 心跳(TTL30s)、优雅停机；compose 三 worker（同镜像不同 command） | `worker/main.py`（新）、compose | 三 worker 起、心跳可见、kill 后状态正确 |
-| T0.11 | 探针：/healthz（不查依赖）、/readyz（Redis/PG/Qdrant/Kafka 生产者）；Prometheus 指标补齐（http/llm/retry/cb/turn/agent/kafka_lag/heartbeat） | `main.py`、`core/metrics.py` | 断 Redis 时 readyz=503、healthz=200 |
-| T0.12 | **旧 29 端点全量穿信封**（业务负载下沉 data，HTTP 语义不变）；三类 SSE error 事件统一；前端 `lib/http.ts` 统一解包+401/429/幂等重试 | `routers/gateway.py`、前端 `app/lib/http.ts`（新）并改全部调用点 | **回归红线**：合同审查三栏+SSE、庭审补证流行为不变 |
+| T0.1 ✅ | 版本与镜像对齐：Dockerfile→python:3.12-slim；requirements 锁 `langgraph>=1.2,<2`、新增 aiokafka/tenacity/structlog/langgraph-checkpoint-postgres/opentelemetry-* | `backend/Dockerfile`、`backend/requirements.txt` | 镜像构建成功；`pip check` 通过 |
+| T0.2 ✅ | 新库与 schema：PG 建 `legalmind_app`；`04-app-schema.sql`（conversations/conversation_members/messages/agent_registry/case_roster_templates/memories/collab_turns/host_decisions）；种子 10 Agent + 8 模板 | `sql/init/00-create-dbs.sql`（加库）、`sql/init/04-app-schema.sql`（新）、种子 SQL | 全新 compose up 自动建库建表、种子可查 |
+| T0.3 ✅ | pg_client 加第四引擎 app_engine + app_session_factory + ORM 模型 | `core/pg_client.py`、`core/config.py`（APP_DB_URL） | 四引擎 init/close 通过 |
+| T0.4 ✅ | 统一信封与错误码：`ApiResponse{code,message,data,request_id}`、`core/errors.py` 错误码枚举（0/401xx/429xx/502xx/503xx/504xx/50901…）、业务异常、全局处理器 | `core/response.py`、`core/errors.py`、`main.py` | 单测覆盖各错误码映射 |
+| T0.5 ✅ | resilience：tenacity 异步重试（0.5/1/2s+jitter，3 次，仅幂等/首字节前）、超时分层（5/30/120/300s）、按服务名复用熔断器、降级链；接入 llm_client 与 ocr_service | `core/resilience.py`（新）、改 `llm_client.py`、`ocr_service.py` | 注入 500 验重试次数与 50301 熔断 |
+| T0.6 ✅ | structlog JSON + X-Request-ID 中间件（contextvar 贯穿，Kafka header/Redis payload/前端短码） | `core/logging.py`（新）、`main.py` | 日志 grep 同一 request_id 跨组件 |
+| T0.7 ✅ | OTel 常开：FastAPI/httpx/SQLAlchemy 自动埋点 + W3C traceparent；compose 加 jaeger(all-in-one,:16686)；worker 同配置 | `core/tracing.py`（新）、`main.py`、compose | Jaeger 可见一条 HTTP→LLM trace；关 jaeger 容器业务正常 |
+| T0.8 ✅ | Kafka 接入：apache/kafka:3.7.2 KRaft 服务 + 3 topic(collab-turns/memory-events/doc-tasks)×3 partition；`core/events.py` aiokafka 封装（懒连、失败降级不阻断）；ENABLE_KAFKA 开关 | docker-compose.yml、`core/events.py`、`.env.example` | 开关 false 可正常启动；true 时收发自测通过 |
+| T0.9 ✅ | LangGraph Checkpointer：AsyncPostgresSaver 连 legalmind_app，startup `setup()` 建 checkpoint 表 | `core/checkpoint.py`（新）、`main.py` | 中断的图状态可在 PG 三表中查到 |
+| T0.10 ✅ | Worker 骨架：`worker/main.py --role`、:8001 healthz/metrics、10s Redis 心跳(TTL30s)、优雅停机；compose 三 worker（同镜像不同 command） | `worker/main.py`（新）、compose | 三 worker 起、心跳可见、kill 后状态正确 |
+| T0.11 ✅ | 探针：/healthz（不查依赖）、/readyz（Redis/PG/Qdrant/Kafka 生产者）；Prometheus 指标补齐（http/llm/retry/cb/turn/agent/kafka_lag/heartbeat） | `main.py`、`core/metrics.py` | 断 Redis 时 readyz=503、healthz=200 |
+| T0.12 ✅ | **旧 29 端点全量穿信封**（业务负载下沉 data，HTTP 语义不变）；三类 SSE error 事件统一；前端 `lib/http.ts` 统一解包+401/429/幂等重试 | `routers/gateway.py`、前端 `app/lib/http.ts`（新）并改全部调用点 | **回归红线**：合同审查三栏+SSE、庭审补证流行为不变 |
 
 **P0 完成标志**：`ENABLE_KAFKA=false` 下现网全部功能行为不变，但日志/信封/重试/追踪/探针已就位；`true` 时三 worker 空转待命。
 
-**执行中记录的遗留项（T0.6 发现，T0.12 必须收口）**：
+**执行中记录的遗留项（T0.6 发现，T0.12 必须收口）**（**已于 T0.12 收口 ✅**——旧 `global_exception_handler` 已删除，异常→状态映射迁入 `response.py`，见 [main.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/main.py#L213-L216)；以下保留原始记录）：
 
 - `main.py` 旧的 `@app.exception_handler(Exception)`（`global_exception_handler`，裸返回 `{detail,type}`）注册在 T0.4 `register_exception_handlers()` **之后**，覆盖了信封兜底 handler（信封版对 EnvelopeRouter 请求应返回 `code=50000` 信封）。当前无 EnvelopeRouter 线上路由，故暂无行为影响；T0.12 旧端点穿信封时**必须二选一**——建议删除旧 handler，旧路由的非信封响应改由 `response.py` 中 `_is_envelope_request` 分支复刻。收口时需同时验证：信封 500 响应体 `request_id` 与 `X-Request-ID` 响应头一致。
 - 该响应头依赖 T0.6 的最外层纯 ASGI 包裹 `app = RequestContextMiddleware(app)`（位于文件末尾）。**不可退回 `app.add_middleware(...)`**：Starlette 的 `ServerErrorMiddleware` 恒为内建栈最外层，未捕获异常经更外层 `send` 发 500 后再 re-raise；中间件若在其内侧，500 响应会被绕过（无 request-id 头、读不到真实状态码、contextvar 在异常处理器执行前被 reset）。T0.7 接 OTel 的 FastAPI instrumentor 时注意保持该包裹顺序。
@@ -126,8 +126,8 @@
 | T1.6 ✅ | 恢复引擎（双模式共用执行器）：turn 状态机(running/interrupted/completed/failed)+租约+attempts/DLQ；`interrupt()/Command(resume=)`；checkpoint 续跑；checkpoints 列表与 fork API；**B2 接管式扮演：轮到 `my_role` 时 `interrupt` 挂起→用户输入后以该角色身份 resume 续跑（`metadata.actor_agent_id`）；「交还给 AI」＝`Command(update)` 撤销接管标志后自动续跑**；**辩论恢复特殊规则（D15）：① 恢复/续跑严格保序不跳人（未发言者按原序补齐、已发言不重生成）；② 每次排序决策落 `host_decisions` 审计；③ scheduler 失败降级兜底（回退模板默认顺序/主持人兜底），不中断整轮**（**M1–M4 ✅ 全部交付，见 §3.6**） | `services/collab/runner.py`、`worker/consumers/collab.py`（新） | F4/F11/F12（含 kill worker 故障演练）；接管暂停/交还闭环；**辩论中断后保序不跳人、无重复气泡** |
 | T1.7 ✅ | court 模板配置化（host=judge；**scheduler 打散串行、庭审用语中性**；JudgeSkill 增 collab_mode 提示词分支与程序指令字段；verdict→JudgmentReportSkill；补证卡片群内化）（**已交付，见 §3.7**） | 改 `agents/judge_skill.py`（仅新增分支）、`services/collab/templates/{__init__,court}.py`（新）、`services/collab/graph.py`（向后兼容注入点） | F7 新旧两路回归 |
 | T1.7⁺ ✅ | **生产图全局接线（集成收口）**：`get_collab_graph()` 由默认桩改为**真实件**，按模板 `adapter` 分派（court→法官/庭审排序/补证卡片/判决书；通用→HostSkill/SchedulerSkill），接线 AgentNodeRunner/ToolNodeRunner/`host_decisions` 审计落库；**同一张编译图服务所有模板**（**已交付，见 §3.8**） | `services/collab/production.py`（新）、`services/collab/graph.py`（改：ask_user 支持 async interaction_card + `get_collab_graph` 真实装配） | 分派正确性 + 图可编译/异步卡片 6 新用例；全量 **259 通过** |
-| T1.8 | 前端三栏 IA 与消息中心（对应 D8–D12，**收敛范围见 D17–D19**）：图标导航、会话列表（**direct/group 图标区分**）、**建群向导三步（含「我不扮演／我扮演某人」）**、`ConversationView`（**单聊/群聊共用**）、气泡/typing/工具卡/纪要卡/@、**接管发言角标「你（扮演 XX）」+「交还给 AI」按钮**、右栏群管理与 Agent 时间线（含主持人 reason）、补证卡片、失败重试、"回到此轮" | `app/messages/*`、`components/collab/*`、stores、`lib/sse.ts`（新） | 选"合同纠纷"自动建群 4 Agent；F1-F8 手测 |
-| T1.9 | 会商纪要与引用卡；结束会商按钮（注入 goto=conclude） | 同 T1.8 + `services/collab/minutes.py` | F6 |
+| T1.8 ✅ | 前端三栏 IA 与消息中心（对应 D8–D12，**收敛范围见 D17–D19**）：图标导航、会话列表（**direct/group 图标区分**）、**建群向导三步（含「我不扮演／我扮演某人」）**、`ConversationView`（**单聊/群聊共用**）、气泡/typing/工具卡/纪要卡/@、**接管发言角标「你（扮演 XX）」+「交还给 AI」按钮**、右栏群管理与 Agent 时间线（含主持人 reason）、补证卡片、失败重试、"回到此轮" | `app/messages/*`、`components/collab/*`、stores、`lib/sse.ts`（新） | 选"合同纠纷"自动建群 4 Agent；F1-F8 手测 |
+| T1.9 ✅ | 会商纪要与引用卡；结束会商按钮（注入 goto=conclude） | 同 T1.8 + `services/collab/minutes.py` | F6 |
 
 #### 3.1 T1.2 详细拆解（已交付 ✅）——Agent 注册表与案情模板服务
 
@@ -624,7 +624,7 @@ round 缺省 / 空记录 40001 / emit fail-open / 历史条数）；`tests/test_
   造成的跨域低相似 —— 此时返回 **0 条恰是正确行为**（强把阈值放宽到 0.40 只会引入**与劳资问题无关的刑案**）。
   **故不动阈值**；`law` 侧行为不变（0.55，头部 0.80）。
 - `_keyword_fallback` 以整句 `ilike` 检索，命中为空时返回 `[]`（无占位兜底）。
-- （新发现·环境侧）**`Qwen/Qwen3-Reranker` 本地未落地**：`rerank_documents` 每次触发 HuggingFace
+- （新发现·环境侧·**已于 §3.29 收口 ✅**）**`Qwen/Qwen3-Reranker` 本地未落地**：`rerank_documents` 每次触发 HuggingFace
   网络重试（约 **2 分钟**、5 次）后才回退，且回退后全体候选 `rerank_score=0.5` → Stage3/Stage4 排序退化为
   **仅按法源权重**。这也是此前 API 冒烟单请求耗时 ~152s 的主因。建议后续补下载模型或把 `RERANKER_MODEL` 指向本地路径。
 
@@ -1092,6 +1092,26 @@ prometheus job 与 `deploy/observability` 目录结构均与仓库一致；修�
 现改为 fail-closed。
 **验证**：`tests/test_web_search.py` 直连用例改写为 fail-closed 断言；`test_web_search.py + test_llm_client.py`
 **18 passed**；全量后端回归见 §3.28 提交记录。
+
+### 3.29 Reranker 落地收口 ✅ —— 本地权重 + 粘性禁用（消 §3.13 遗留）
+
+**问题（§3.13 记录·环境侧）**：默认模型 id `Qwen/Qwen3-Reranker` **并非有效 HF 仓库**（官方为
+`Qwen/Qwen3-Reranker-0.6B`），且本地无权重 → 每次 `rerank_documents` 都触发 HF 网络重试
+（约 2 分钟/次）后才整体回退，全体候选 `rerank_score=0.5`，Stage3/Stage4 排序退化为仅按法源权重；
+这也是此前 API 冒烟单请求耗时 ~152s 的主因。
+
+**代码改动**：
+- [config.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/config.py#L28)：`RERANKER_MODEL` 默认由 `Qwen/Qwen3-Reranker` 改为 `models/Qwen/Qwen3-Reranker-0.6B`（本地优先）。
+- [reranker.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/reranker.py)：① 新增
+  `_resolve_model_path()`：`models/` 前缀相对路径基于项目根解析，**本地缺失时回退官方 HF id**（不再把
+  本地路径当作无效 repo id 交给 HF）；② **离线优先**加载（`local_files_only=True`），仅本地缺失时才联网
+  下载一次；③ 首次加载失败即置 `_load_failed` **粘性禁用**，后续请求不再触发网络重试（告警只打一次，
+  其后降为 debug 级）。
+
+**权重落地**：`Qwen/Qwen3-Reranker-0.6B` → `models/Qwen/Qwen3-Reranker-0.6B`（约 1.19 GB，与
+`Qwen3-Embedding-0.6B` 同目录约定；`models/` 与 `*.safetensors` 均已在 `.gitignore` 中，不入库）。
+
+**验证**：全量后端 **368 passed**（无回归）；模型本地加载与 query-doc 打分实测见提交记录。
 
 ### P2 — 长期记忆（Codex 式）
 

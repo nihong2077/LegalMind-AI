@@ -322,7 +322,7 @@ Client → RequestContext → Prometheus → Envelope → OTel → ServerError �
 
 **基础设施镜像**：redis:7-alpine、pgvector/pgvector:pg16、postgres:16-alpine、qdrant/qdrant:v1.9.0、apache/kafka:3.7.2、jaegertracing/all-in-one:1.60、ghcr.io/berriai/litellm:main-stable、prom/prometheus:v2.55.1、grafana/grafana:11.3.0。
 
-**模型配置**（[config.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/config.py#L23-L30)）：Embedding `models/Qwen/Qwen3-Embedding-0.6B`（dim 1024，device cuda）、Reranker `Qwen/Qwen3-Reranker`（cpu，top_n 20）。
+**模型配置**（[config.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/config.py#L23-L30)）：Embedding `models/Qwen/Qwen3-Embedding-0.6B`（dim 1024，device cuda）、Reranker `models/Qwen/Qwen3-Reranker-0.6B`（cpu，top_n 20；**本地权重优先，缺失回退官方 HF id**，加载失败粘性禁用）。
 
 ---
 

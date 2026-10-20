@@ -94,6 +94,8 @@ Key ideas:
 | 📄 | **Contract review** | Upload PDF / Word / TXT, parse, extract clauses, scan risks, and produce a structured review report with side-by-side original text. |
 | 🔍 | **Hybrid RAG retrieval** | Dense vector + sparse keyword recall across Qdrant and pgvector, merged, deduplicated, then reranked; results injected as a **separate system message** (never overwriting the persona prompt). |
 | 🧠 | **Long-term memory** | Per-user memory extraction (Flash model), PostgreSQL `memories` table as source of truth, Qdrant `user_memories` (1024 / Cosine) for vector recall; similarity ≥ 0.90 merges, 0.75–0.90 raises a warning instead of silently merging. |
+| 🗂️ | **Memory workbench** | Three-pane page (list / detail): category tabs, star-to-pin, archive, manual CRUD and jump-to-source-session; the `/cases` view merges group chats with contract reviews. |
+| 🔎 | **Unified search** | One query fans out in parallel to statutes, case law, user memory and message history; a per-channel failure only blanks that channel (fail-open) and is reported in an `errors` field. |
 | 🌐 | **Web search (DeepSeek Search/Fetch)** | Before speaking, an agent decides with its own model whether it needs the web; if yes it calls DeepSeek Search/Fetch and injects a `【联网检索资料】` block plus a citation card. |
 | 🧾 | **Citation cards** | Law citations, case citations and web citations are persisted as `msg_type=card` with structured `metadata.citations` and rendered as blue-bordered cards. |
 | 🛡️ | **Engineering resilience** | Checkpoint-based interrupt/resume, turn fork & time-travel, idempotent message writes via `event_key`, Redis circuit breakers, and full graceful degradation when Kafka/Redis/LLM are unavailable. |
@@ -134,7 +136,7 @@ Supporting services (Docker Compose): Jaeger (OTel traces), Kafka 3.7.2 KRaft (o
 
 ## Agent Roster & Collaboration Templates
 
-**10 registered agents** (seeded by [05-seed-agents-templates.sql](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/sql/init/05-seed-agents-templates.sql)):
+**10 registered agents** (seeded by [05-seed-agents-templates.sql](backend/sql/init/05-seed-agents-templates.sql)):
 
 | agent_id | Name | Role | Type |
 |---|---|---|---|
@@ -159,7 +161,7 @@ Supporting services (Docker Compose): Jaeger (OTel traces), Kafka 3.7.2 KRaft (o
 
 **Infrastructure** — PostgreSQL 16 + pgvector · Qdrant v1.9 · Redis 7 (AOF, LRU) · LiteLLM Proxy · Kafka 3.7.2 (KRaft, optional) · Jaeger all-in-one · Docker Compose.
 
-**Models** — `deepseek-v4-pro` (heavy analysis / contract review) and `deepseek-flash` (fast retrieval / light tasks / memory extraction), with automatic cross-fallback configured in [litellm/config.yaml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/litellm/config.yaml).
+**Models** — `deepseek-v4-pro` (heavy analysis / contract review) and `deepseek-flash` (fast retrieval / light tasks / memory extraction), with automatic cross-fallback configured in [litellm/config.yaml](litellm/config.yaml).
 
 ## Project Structure
 
@@ -179,20 +181,23 @@ LegalMind AI/
 │   │   │   └── agents/ workflows/    #   skill wrappers, legacy workflows
 │   │   ├── worker/                   #   collab / memory / doc worker entrypoints
 │   │   └── sql/init/                 #   Postgres bootstrap + seed data
-│   ├── tests/                        #   33 test modules (pytest + pytest-asyncio)
+│   ├── tests/                        #   34 test modules (pytest + pytest-asyncio)
 │   ├── scripts/                      #   data cleaning & knowledge import
 │   └── requirements.txt / Dockerfile
 ├── frontend/                         # ⚛️ Next.js 14 workspace
-│   ├── app/                          #   chat, court, documents, knowledge,
-│   │                                 #   cases, dashboard, messages, login
+│   ├── app/                          #   messages, search, memory, documents,
+│   │                                 #   dashboard, login (+ legacy-route redirects)
 │   ├── components/                   #   chat & collab UI, citation cards
 │   ├── store/                        #   Zustand stores
-│   └── package.json / Dockerfile
+│   └── package.json / Dockerfile / .dockerignore
 ├── litellm/config.yaml               # 🧠 model gateway + Search/Fetch pass-through
-├── docker-compose.yml                # 🐳 full orchestration
-├── deploy/                           # 🚀 simplified deployment config
+├── docker-compose.yml                # 🐳 full orchestration (middleware + backend + workers + frontend)
+├── deploy/                           # 🚀 simplified deployment
+│   ├── docker-compose.yml            #   trimmed compose (litellm + api + frontend)
+│   └── scripts/docker-deploy.sh      #   one-shot deploy (requires Compose v2)
 ├── scripts/setup_local_model.sh      # 🖥️ local fine-tuned model bootstrap
 ├── docs/                             # 📚 specs & delivery records
+├── Agent.md                          # 🤖 build/deploy ops log
 └── CODE_WIKI.md                      # 📖 in-depth code walkthrough
 ```
 
@@ -203,8 +208,8 @@ LegalMind AI/
 | Dependency | Minimum | Notes |
 |---|:---:|---|
 | Python | `≥ 3.10` | Backend runtime |
-| Node.js | `≥ 18` | Frontend runtime |
-| Docker | `≥ 24` | Infrastructure containers |
+| Node.js | `≥ 18` (`20` in Docker) | Frontend runtime; the image pins `node:20-slim` |
+| Docker | `≥ 24` + Compose **v2** | Containers and orchestration (`docker compose`, not legacy `docker-compose` v1) |
 | CUDA | `≥ 11.8` | GPU inference (optional, falls back to CPU) |
 
 ### 1. Clone & configure
@@ -245,9 +250,16 @@ npm install && npm run dev
 ### One-shot deployment (Docker)
 
 ```bash
+./deploy/scripts/docker-deploy.sh        # down --remove-orphans → build → up -d
+# equivalent, explicit form:
 docker compose up -d --build
 docker compose logs -f --tail=50
 ```
+
+> Requires the **Compose v2 plugin** (`docker compose version`); the legacy `docker-compose` v1 binary cannot manage containers on current Docker engines.
+>
+> `NEXT_PUBLIC_API_URL` is inlined at **build** time, so the frontend image is built with `--build-arg NEXT_PUBLIC_API_URL=http://localhost:8000` (already wired in `docker-compose.yml`); injecting it only at runtime has no effect.
+> Redis is **not** published to the host — in-stack clients use the internal `redis://redis:6379/0` address.
 
 ## Environment Variables
 
@@ -301,7 +313,9 @@ Pipeline: `clean text → chunk → embed → upsert into Qdrant → record chec
 | `/api/knowledge/search` · `/api/knowledge/list` | `POST` / `GET` | 🔑 | Hybrid legal knowledge retrieval |
 | `/api/documents/upload` · `/api/documents/{id}/content` · `/api/documents/{id}/analyze` | `POST` / `GET` | 🔑 | Document upload, parsed content, analysis |
 | `/api/contract/review` · `/api/contract/review/stream` · `/api/contract/draft-clause` | `POST` | 🔑 | Contract review & clause drafting |
+| `/api/search/unified` | `POST` | 🔑 | Unified search — four parallel channels (statutes, case law, user memory, message history), per-channel failure isolation |
 | `/api/conversations` | `GET` / `POST` | 🔑 | List / create collaboration conversations |
+| `/api/conversations/import` | `POST` | 🔑 | Import legacy local sessions as server-side history (no new collaboration turn) |
 | `/api/conversations/{id}/members` · `/my_role` | `POST` / `DELETE` | 🔑 | Manage members; user role takeover |
 | `/api/conversations/{id}/messages` · `/minutes` | `GET` / `POST` | 🔑 | Messages and meeting minutes |
 | `/api/conversations/{id}/turns/{turn_id}/checkpoints` · `/fork` | `GET` / `POST` | 🔑 | Turn checkpoints and state branching |
@@ -324,6 +338,7 @@ All `/api/*` responses are wrapped in a unified envelope `{code, message, data, 
 - **Poison-message isolation** — the collab and memory consumers isolate each message, and exhausted retries are routed to `collab-turns-dlq` / `memory-events-dlq` instead of blocking the queue.
 - **Kafka optional** — with `ENABLE_KAFKA=false` the event bus falls back to in-process execution, so local development needs no broker.
 - **Circuit breakers & fallback** — per-service Redis circuit breakers fail *open*; LLM streaming retries are only allowed before the first byte to avoid duplicate generation and billing; unavailable models fall back to `deepseek-flash` with an SSE `status` notice.
+- **Local weights first** — Qwen3-Embedding / Reranker load from `models/` offline; if the weights are absent the reranker is **stickily disabled** after the first failure (returns the original order with `score=0.5`) instead of paying a ~2-minute HF retry on every request.
 - **Guardrails over logic** — the graph only enforces guardrails; any scheduler exception falls back to the template's default order instead of aborting the round.
 
 ## Security & Key Isolation
@@ -337,20 +352,24 @@ All `/api/*` responses are wrapped in a unified envelope `{code, message, data, 
 
 ```bash
 cd backend && source venv/bin/activate
-pytest            # 33 test modules
+pytest            # 34 test modules
 ```
 
-Latest full run: **334 passed**. Suites cover the API envelope, auth, RAG retriever (dense/sparse merge and payload-content resolution), LangGraph topology, scheduler/host dispatch, tool spokes, speaker notice, web-search client and web pre-decision, memory pipeline, and worker DLQ routing.
+Latest full run: **368 passed**. Suites cover the API envelope, auth, RAG retriever (dense/sparse merge and payload-content resolution), LangGraph topology, scheduler/host dispatch, tool spokes, speaker notice, web-search client and web pre-decision, memory pipeline, and worker DLQ routing.
 
 ## Documentation Map
 
 | Doc | Content |
 |---|---|
-| [CODE_WIKI.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/CODE_WIKI.md) | In-depth code walkthrough (architecture, modules, storage, conventions) |
-| [collab-implementation_plan.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-implementation_plan.md) | Collaboration deliverables & task tracking |
-| [collab-scheduling_spec.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-scheduling_spec.md) | Host/scheduler specification |
-| [collab-supervisor-checkpoint_spec.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-supervisor-checkpoint_spec.md) | Checkpoint, interrupt/resume and fork |
-| [collab-ui-refactor_plan.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-ui-refactor_plan.md) | Collaboration UI refactor plan |
+| [CODE_WIKI.md](CODE_WIKI.md) | In-depth code walkthrough (architecture, modules, storage, conventions) |
+| [architecture.md](docs/architecture.md) | System architecture and component boundaries |
+| [api-reference.md](docs/api-reference.md) | Endpoint-by-endpoint API reference |
+| [deployment.md](docs/deployment.md) | Deployment guide (local + Docker) |
+| [collab-implementation_plan.md](docs/collab-implementation_plan.md) | Collaboration deliverables & task tracking |
+| [collab-scheduling_spec.md](docs/collab-scheduling_spec.md) | Host/scheduler specification |
+| [collab-supervisor-checkpoint_spec.md](docs/collab-supervisor-checkpoint_spec.md) | Checkpoint, interrupt/resume and fork |
+| [collab-ui-refactor_plan.md](docs/collab-ui-refactor_plan.md) | Collaboration UI refactor plan |
+| [Agent.md](Agent.md) | Build/deploy operations log (image builds, cleanup) |
 
 ## Roadmap
 
@@ -358,6 +377,9 @@ Latest full run: **334 passed**. Suites cover the API envelope, auth, RAG retrie
 - [x] Star-topology multi-agent collaboration with a hidden host/scheduler
 - [x] Tool spokes with law/case citation cards prefetched per round
 - [x] Long-term memory (store, worker, recall, per-user toggle)
+- [x] Memory workbench page (tabs, star-to-pin, archive, source-session jump) + `/cases` view
+- [x] Unified search API (four-channel parallel recall with per-channel failure isolation)
+- [x] One-shot Docker deployment for middleware + backend + workers + frontend
 - [x] Web search (DeepSeek Search/Fetch) with pre-decision and citation cards
 - [ ] Memory page UI for the 0.75–0.90 similarity warning channel
 - [ ] Conservative tuning of the judge-domain recall threshold so case-law spokes never return empty
@@ -412,6 +434,8 @@ LegalMind AI 是一个研究级的**多智能体法律协作平台**。它采用
 | 📄 | **合同智能审查** | 支持 PDF / Word / TXT 上传解析、条款提取、风险扫描，产出结构化审查报告并支持原文对照。 |
 | 🔍 | **RAG 混合检索** | 在 Qdrant 与 pgvector 上并行做稠密向量 + 稀疏关键词召回，合并去重后精排；检索结果以**独立 system 消息**注入，绝不覆盖人设提示词。 |
 | 🧠 | **长期记忆** | 按用户抽取记忆（Flash 模型），PostgreSQL `memories` 表为事实源，Qdrant `user_memories`（1024 / Cosine）负责向量召回；相似度 ≥ 0.90 合并，0.75–0.90 只告警不静默合并。 |
+| 🗂️ | **记忆工作台** | 三栏记忆页（列表 / 详情）：分类 Tab、星标置顶、归档、手动增删改查与跳转来源会话；`/cases` 视图合并群聊与合同审查记录。 |
+| 🔎 | **统一搜索** | 一次查询并行扇出到法规、类案、用户记忆与会话历史；单路失败仅置空该路结果（fail-open），并在 `errors` 字段上报。 |
 | 🌐 | **联网检索（DeepSeek Search/Fetch）** | 发言前由 Agent 用自身模型判断是否需要联网；需要则调用 DeepSeek Search/Fetch，注入 `【联网检索资料】` 资料块并产出引用卡。 |
 | 🧾 | **引用卡** | 法规引用、类案引用与联网引用以 `msg_type=card` 落库，携带结构化 `metadata.citations`，前端渲染为蓝边卡片。 |
 | 🛡️ | **工程韧性** | 基于 checkpointer 的中断恢复、轮次分叉与时间旅行、`event_key` 幂等写入、Redis 熔断器，以及 Kafka/Redis/LLM 不可用时的完整降级。 |
@@ -452,7 +476,7 @@ LegalMind AI 是一个研究级的**多智能体法律协作平台**。它采用
 
 ## Agent 名册与协作模板
 
-**10 个注册 Agent**（种子数据见 [05-seed-agents-templates.sql](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/sql/init/05-seed-agents-templates.sql)）：
+**10 个注册 Agent**（种子数据见 [05-seed-agents-templates.sql](backend/sql/init/05-seed-agents-templates.sql)）：
 
 | agent_id | 名称 | 职责 | 类型 |
 |---|---|---|---|
@@ -477,7 +501,7 @@ LegalMind AI 是一个研究级的**多智能体法律协作平台**。它采用
 
 **基础设施** —— PostgreSQL 16 + pgvector · Qdrant v1.9 · Redis 7（AOF + LRU）· LiteLLM Proxy · Kafka 3.7.2（KRaft，可选）· Jaeger all-in-one · Docker Compose。
 
-**模型** —— `deepseek-v4-pro`（重型分析/合同审查）与 `deepseek-flash`（快速检索/轻量任务/记忆抽取），双向自动回退配置见 [litellm/config.yaml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/litellm/config.yaml)。
+**模型** —— `deepseek-v4-pro`（重型分析/合同审查）与 `deepseek-flash`（快速检索/轻量任务/记忆抽取），双向自动回退配置见 [litellm/config.yaml](litellm/config.yaml)。
 
 ## 项目结构
 
@@ -497,20 +521,23 @@ LegalMind AI/
 │   │   │   └── agents/ workflows/    #   Skill 封装与既有工作流
 │   │   ├── worker/                   #   collab / memory / doc worker 入口
 │   │   └── sql/init/                 #   Postgres 建库 + 种子数据
-│   ├── tests/                        #   33 个测试模块（pytest + pytest-asyncio）
+│   ├── tests/                        #   34 个测试模块（pytest + pytest-asyncio）
 │   ├── scripts/                      #   数据清洗与知识库导入
 │   └── requirements.txt / Dockerfile
 ├── frontend/                         # ⚛️ Next.js 14 工作台
-│   ├── app/                          #   chat、court、documents、knowledge、
-│   │                                 #   cases、dashboard、messages、login
+│   ├── app/                          #   messages、search、memory、documents、
+│   │                                 #   dashboard、login（含旧路由重定向）
 │   ├── components/                   #   对话与协作 UI、引用卡
 │   ├── store/                        #   Zustand 状态
-│   └── package.json / Dockerfile
+│   └── package.json / Dockerfile / .dockerignore
 ├── litellm/config.yaml               # 🧠 模型网关 + Search/Fetch 透传
-├── docker-compose.yml                # 🐳 完整编排
-├── deploy/                           # 🚀 简化部署配置
+├── docker-compose.yml                # 🐳 完整编排（中间件 + 后端 + worker + 前端）
+├── deploy/                           # 🚀 简化部署
+│   ├── docker-compose.yml            #   精简编排（litellm + api + frontend）
+│   └── scripts/docker-deploy.sh      #   一键部署脚本（需 Compose v2）
 ├── scripts/setup_local_model.sh      # 🖥️ 本地微调模型初始化
 ├── docs/                             # 📚 规格与交付记录
+├── Agent.md                          # 🤖 构建/部署操作日志
 └── CODE_WIKI.md                      # 📖 深度代码导读
 ```
 
@@ -521,8 +548,8 @@ LegalMind AI/
 | 依赖 | 最低版本 | 说明 |
 |------|:--------:|------|
 | Python | `≥ 3.10` | 后端运行时 |
-| Node.js | `≥ 18` | 前端运行时 |
-| Docker | `≥ 24` | 基础设施容器化 |
+| Node.js | `≥ 18`（Docker 内为 `20`） | 前端运行时；镜像固定 `node:20-slim` |
+| Docker | `≥ 24` + Compose **v2** | 容器与编排（`docker compose`，非旧版 `docker-compose` v1） |
 | CUDA | `≥ 11.8` | GPU 推理（可选，缺失自动回退 CPU） |
 
 ### 1. 克隆与配置
@@ -563,9 +590,16 @@ npm install && npm run dev
 ### 一键部署（Docker）
 
 ```bash
+./deploy/scripts/docker-deploy.sh        # down --remove-orphans → build → up -d
+# 等价的显式写法：
 docker compose up -d --build
 docker compose logs -f --tail=50
 ```
+
+> 需要 **Compose v2 插件**（`docker compose version`）；旧版 `docker-compose` v1 在当前 Docker 引擎上无法管理已存在的容器。
+>
+> `NEXT_PUBLIC_API_URL` 在**构建期**被内联进前端产物，故前端镜像需带 `--build-arg NEXT_PUBLIC_API_URL=http://localhost:8000`（`docker-compose.yml` 已接好）；仅在运行期注入无效。
+> Redis **不向宿主发布端口**，栈内客户端走内网 `redis://redis:6379/0`。
 
 ## 环境变量
 
@@ -619,7 +653,9 @@ python scripts/import_all.py --resume --skip-lawyer
 | `/api/knowledge/search` · `/api/knowledge/list` | `POST` / `GET` | 🔑 | 法律知识混合检索 |
 | `/api/documents/upload` · `/api/documents/{id}/content` · `/api/documents/{id}/analyze` | `POST` / `GET` | 🔑 | 文档上传、解析内容、分析 |
 | `/api/contract/review` · `/api/contract/review/stream` · `/api/contract/draft-clause` | `POST` | 🔑 | 合同审查与条款起草 |
+| `/api/search/unified` | `POST` | 🔑 | 统一搜索 —— 法规/类案/用户记忆/会话历史四路并行，单路失败隔离 |
 | `/api/conversations` | `GET` / `POST` | 🔑 | 协作会话列表 / 创建 |
+| `/api/conversations/import` | `POST` | 🔑 | 导入旧本地会话为服务端历史（不触发新协作轮次） |
 | `/api/conversations/{id}/members` · `/my_role` | `POST` / `DELETE` | 🔑 | 成员管理与用户角色接管 |
 | `/api/conversations/{id}/messages` · `/minutes` | `GET` / `POST` | 🔑 | 消息与会商纪要 |
 | `/api/conversations/{id}/turns/{turn_id}/checkpoints` · `/fork` | `GET` / `POST` | 🔑 | 轮次检查点与状态分叉 |
@@ -642,6 +678,7 @@ python scripts/import_all.py --resume --skip-lawyer
 - **毒消息隔离** —— collab 与 memory 消费者逐条隔离，重试耗尽后分别投递 `collab-turns-dlq` / `memory-events-dlq`，不阻塞整条队列。
 - **Kafka 可选** —— `ENABLE_KAFKA=false` 时事件总线自动降级为进程内执行，本地开发无需 broker。
 - **熔断与回退** —— 每个服务独立的 Redis 熔断器采用 fail-open；LLM 流式重试只允许发生在收到首字节之前，避免重复生成与重复计费；模型不可用时回退 `deepseek-flash` 并通过 SSE `status` 告知前端。
+- **本地权重优先** —— Qwen3-Embedding / Reranker 优先从 `models/` 离线加载；权重缺失时精排在首次失败后**粘性禁用**（按原顺序返回 `score=0.5`），不再每请求付出约 2 分钟的 HF 重试。
 - **护栏而非逻辑** —— 图只提供护栏；调度异常时回退模板默认顺序，绝不中断整轮。
 
 ## 安全与密钥隔离
@@ -655,7 +692,7 @@ python scripts/import_all.py --resume --skip-lawyer
 
 ```bash
 cd backend && source venv/bin/activate
-pytest            # 33 个测试模块
+pytest            # 34 个测试模块
 ```
 
 最近一次全量结果：**368 passed**。覆盖 API 信封、鉴权、RAG 检索（稠密/稀疏合并与 payload 内容提升）、LangGraph 拓扑、调度与主持分派、工具辐条、轮次分隔条、联网检索客户端与前置决策、记忆流水线，以及 worker 的 DLQ 路由。
@@ -664,11 +701,15 @@ pytest            # 33 个测试模块
 
 | 文档 | 内容 |
 |---|---|
-| [CODE_WIKI.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/CODE_WIKI.md) | 深度代码导读（架构、模块、存储、约定） |
-| [collab-implementation_plan.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-implementation_plan.md) | 协作功能交付与任务跟踪 |
-| [collab-scheduling_spec.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-scheduling_spec.md) | 主持人/调度智能体规格 |
-| [collab-supervisor-checkpoint_spec.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-supervisor-checkpoint_spec.md) | 检查点、中断恢复与分叉 |
-| [collab-ui-refactor_plan.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-ui-refactor_plan.md) | 协作 UI 重构方案 |
+| [CODE_WIKI.md](CODE_WIKI.md) | 深度代码导读（架构、模块、存储、约定） |
+| [architecture.md](docs/architecture.md) | 系统架构与组件边界 |
+| [api-reference.md](docs/api-reference.md) | 逐端点 API 参考 |
+| [deployment.md](docs/deployment.md) | 部署指南（本地 + Docker） |
+| [collab-implementation_plan.md](docs/collab-implementation_plan.md) | 协作功能交付与任务跟踪 |
+| [collab-scheduling_spec.md](docs/collab-scheduling_spec.md) | 主持人/调度智能体规格 |
+| [collab-supervisor-checkpoint_spec.md](docs/collab-supervisor-checkpoint_spec.md) | 检查点、中断恢复与分叉 |
+| [collab-ui-refactor_plan.md](docs/collab-ui-refactor_plan.md) | 协作 UI 重构方案 |
+| [Agent.md](Agent.md) | 构建/部署操作日志（镜像构建与清理） |
 
 ## 路线图
 
@@ -676,6 +717,9 @@ pytest            # 33 个测试模块
 - [x] 星型拓扑多智能体协作 + 隐藏主持/调度智能体
 - [x] 工具辐条与法规/类案引用卡（轮首并行预取）
 - [x] 长期记忆（存储、worker、召回、按用户开关）
+- [x] 记忆工作台页（分类 Tab、星标置顶、归档、跳转来源会话）+ `/cases` 视图
+- [x] 统一搜索 API（四路并行召回，单路失败隔离）
+- [x] 中间件 + 后端 + worker + 前端的一键 Docker 部署
 - [x] 联网检索（DeepSeek Search/Fetch）+ 前置决策 + 引用卡
 - [ ] 记忆页 UI：承载 0.75–0.90 相似度提示通道
 - [ ] 保守调优 judge 域召回阈值，避免类案辐条恒返回 0 条

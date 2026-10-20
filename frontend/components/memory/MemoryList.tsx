@@ -74,8 +74,8 @@ export default function MemoryList({ onNewMemory }: MemoryListProps) {
         </button>
       </div>
 
-      {/* 分类 Tab */}
-      <div className="px-3 pt-3 flex gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+      {/* 分类 Tab：侧栏宽度有限，用换行而非横向滚动，避免末项被截断 */}
+      <div className="px-3 pt-3 flex flex-wrap gap-1 border-b border-slate-100 pb-2">
         {MEMORY_TYPE_TABS.map((tab) => {
           const active = filters.memoryType === tab.key
           return (

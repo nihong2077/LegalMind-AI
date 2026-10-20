@@ -24,6 +24,19 @@
 
 ## 2. 快速开始（完整 compose 一键部署）
 
+**推荐：一键脚本**（构建前后端镜像 → 清理旧/无用镜像 → 启动默认服务集）：
+
+```bash
+cp .env.example .env      # 首次：至少填 JWT_SECRET_KEY / DEEPSEEK_API_KEY / LITELLM_MASTER_KEY 等
+bash deploy/scripts/docker-deploy.sh
+```
+
+脚本依次执行 `docker compose down --remove-orphans` → `docker compose build fastapi frontend` →
+`docker image prune -f`（清理被重建取代的旧镜像）→ `docker compose up -d --remove-orphans`。
+可选开关：`SKIP_PRUNE=1` 跳过清理、`NO_DOWN=1` 不先停旧容器。详见 [Agent.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/Agent.md)。
+
+**或手动执行等价步骤**：
+
 ```bash
 # 1) 准备环境变量（真实密钥只进 .env，切勿提交）
 cp .env.example .env        # 详见第 5 节，至少填 JWT_SECRET_KEY / DEEPSEEK_API_KEY / LITELLM_MASTER_KEY 等
@@ -44,6 +57,9 @@ docker compose down -v         # ⚠️ 连同 PG/Redis/Qdrant 数据一起删�
 # 6) 仅重建后端镜像
 docker compose build fastapi
 docker compose up -d fastapi
+
+# 7) 构建后清理被取代的旧镜像（悬空镜像）
+docker image prune -f
 ```
 
 启动后访问：
@@ -68,7 +84,7 @@ docker compose up -d fastapi
 | `worker-collab` | `legalmind-backend:local` | `legalmind-worker-collab` | 无（容器内 `:8001`） | `redis`(healthy)、`jaeger`(started) | 协同轮次执行 + 孤儿扫描 |
 | `worker-memory` | `legalmind-backend:local` | `legalmind-worker-memory` | 无（容器内 `:8001`） | `redis`(healthy)、`jaeger`(started) | 长期记忆抽取/合并 |
 | `worker-doc` | `legalmind-backend:local` | `legalmind-worker-doc` | 无（容器内 `:8001`） | `redis`(healthy)、`jaeger`(started) | 文档/OCR 异步任务 |
-| `frontend` | 本地构建（`./frontend`）| `legalmind-frontend` | `3000:3000` | `fastapi`(healthy) | Next.js 前端；`NEXT_PUBLIC_API_URL=http://localhost:8000` |
+| `frontend` | 本地构建 `legalmind-frontend:local` | `legalmind-frontend` | `3000:3000` | `fastapi`(healthy) | Next.js 前端；`NEXT_PUBLIC_API_URL` 经 `build.args` 构建期注入（standalone 产物） |
 | `jaeger` | `jaegertracing/all-in-one:1.60` | `legalmind-jaeger` | `16686:16686`(UI)、`4317:4317`(OTLP gRPC) | — | OTel trace 后端；`COLLECTOR_OTLP_ENABLED=true` |
 | `kafka` | `apache/kafka:3.7.2` | `legalmind-kafka` | `9092:9092` | — | KRaft 单节点（broker+controller 同进程） |
 | `kafka-init` | `apache/kafka:3.7.2` | `legalmind-kafka-init` | 无 | `kafka`(healthy) | 一次性任务：建 `collab-turns`/`memory-events`/`doc-tasks` 三个 topic |
@@ -153,7 +169,7 @@ docker compose up -d fastapi
 | `EMBEDDING_DIM` | `1024` | 向量维度 |
 | `EMBEDDING_DEVICE` | `cuda` | 可回退 `cpu` |
 | `EMBEDDING_BATCH_SIZE` | `32` | 批大小 |
-| `RERANKER_MODEL` / `RERANKER_DEVICE` / `RERANKER_TOP_N` | `Qwen/Qwen3-Reranker` / `cpu` / `20` | 重排模型、设备、保留条数 |
+| `RERANKER_MODEL` / `RERANKER_DEVICE` / `RERANKER_TOP_N` | `models/Qwen/Qwen3-Reranker-0.6B` / `cpu` / `20` | 重排模型（**本地权重优先，缺失则回退官方 HF id `Qwen/Qwen3-Reranker-0.6B`**）、设备、保留条数 |
 | `HYBRID_RECALL_TOP_K` / `FINAL_TOP_K` | `100` / `8` | 混合召回 / 最终保留 |
 | `SCORE_THRESHOLD_DENSE` / `SCORE_THRESHOLD_SPARSE` | `0.55` / `0.3` | 稠密/稀疏打分阈值 |
 

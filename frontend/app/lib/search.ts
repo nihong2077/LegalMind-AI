@@ -162,13 +162,16 @@ export function resultSource(r: SearchResult): SearchSource {
 
 /** 归一化为转发用引用卡 */
 export function resultToCitation(r: SearchResult): ForwardCitation {
-  if (r.type === 'law' || r.type === 'judge') {
-    return { source: r.type === 'law' ? '法规' : '类案', title: r.source, content: r.content, score: r.score }
+  switch (r.type) {
+    case 'law':
+      return { source: '法规', title: r.source, content: r.content, score: r.score }
+    case 'judge':
+      return { source: '类案', title: r.source, content: r.content, score: r.score }
+    case 'memory':
+      return { source: memoryTypeLabel(r.memory_type), title: r.summary || r.content, content: r.content, score: r.score }
+    case 'messages':
+      return { source: r.sender_name || '会话', title: r.conversation_title || '会话记录', content: r.content }
   }
-  if (r.type === 'memory') {
-    return { source: memoryTypeLabel(r.memory_type), title: r.summary || r.content, content: r.content, score: r.score }
-  }
-  return { source: r.sender_name || '会话', title: r.conversation_title || '会话记录', content: r.content }
 }
 
 /** 落库正文（进入共享上下文窗，供 Agent 引用）：`【标题】正文` */

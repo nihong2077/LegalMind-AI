@@ -92,6 +92,28 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 前端本地错误码：请求在到达服务端前就失败（后端不可达 / DNS 失败 / CORS 拦截）。
+ * 这类失败没有服务端信封，后端永远不会下发 50001，前端仅用于兜底文案与重试判定。
+ */
+export const NETWORK_ERROR_CODE = 50001
+
+/**
+ * fetch 层网络故障统一转成 ApiError。
+ * 浏览器对这类失败只给裸英文 "Failed to fetch"，直接上屏对用户不可读，故在此收口为中文提示。
+ * 调用方主动取消（AbortError）由各调用处原样抛出，不经过此处，避免改变取消语义。
+ */
+function toNetworkError(cause: unknown): ApiError {
+  return new ApiError(
+    NETWORK_ERROR_CODE,
+    0,
+    '无法连接后端服务，请检查网络或稍后重试',
+    true,
+    undefined,
+    cause,
+  )
+}
+
 /** 信封失败体（与后端 core/response.py 对齐） */
 interface ErrorEnvelope {
   code: number
@@ -237,15 +259,13 @@ export async function request<T = unknown>(
       res = await fetch(url, { method, headers, body, signal: init.signal })
     } catch (e) {
       lastError = e
-      if (
-        idempotent &&
-        attempt < maxAttempts - 1 &&
-        !(e instanceof DOMException && e.name === 'AbortError')
-      ) {
+      const aborted = e instanceof DOMException && e.name === 'AbortError'
+      if (idempotent && attempt < maxAttempts - 1 && !aborted) {
         await sleep(backoffDelay(attempt, null))
         continue
       }
-      throw e
+      if (aborted) throw e
+      throw toNetworkError(e)
     }
 
     if (res.status === 401) {
@@ -283,7 +303,9 @@ export async function request<T = unknown>(
     return parsed as T
   }
 
-  throw lastError instanceof Error ? lastError : new Error('请求失败')
+  // 循环正常结束只可能来自网络失败分支（重试条件均带 attempt < maxAttempts - 1 守卫），
+  // 故此处统一按网络故障收口。
+  throw toNetworkError(lastError)
 }
 
 /**
@@ -308,7 +330,13 @@ export async function requestRaw(
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
-  const res = await fetch(url, { method, headers, body, signal: init.signal })
+  let res: Response
+  try {
+    res = await fetch(url, { method, headers, body, signal: init.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw toNetworkError(e)
+  }
 
   if (res.status === 401) {
     throw await unauthorizedError(res)

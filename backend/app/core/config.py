@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     EMBEDDING_DEVICE: str = "cuda"
     EMBEDDING_BATCH_SIZE: int = 32
 
-    RERANKER_MODEL: str = "Qwen/Qwen3-Reranker"
+    RERANKER_MODEL: str = "models/Qwen/Qwen3-Reranker-0.6B"  # 本地权重优先；缺失时回退 HF id
     RERANKER_DEVICE: str = "cpu"
     RERANKER_TOP_N: int = 20
 

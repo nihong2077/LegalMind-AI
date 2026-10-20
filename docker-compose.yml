@@ -2,8 +2,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: legalmind-redis
-    ports:
-      - "6379:6379"
+    # 不发布宿主端口：栈内后端经 docker 内网 `redis://redis:6379/0` 访问；
+    # 宿主机 6379 由本地 systemd redis 占用，供本地直跑后端使用（见 .env REDIS_URL）。
     volumes:
       - redis_data:/data
     command: >
@@ -304,6 +304,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_API_URL 于构建期内联进前端产物，故必须作为 build arg 传入
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    image: legalmind-frontend:local
     container_name: legalmind-frontend
     ports:
       - "3000:3000"

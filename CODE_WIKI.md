@@ -468,7 +468,7 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 | 文件 | 核心函数 | 职责 |
 |------|---------|------|
 | [embedding.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/embedding.py) | `embed_text` / `embed_texts` / `compute_similarity` | Qwen3-Embedding（离线优先加载，归一化向量，线程池异步） |
-| [reranker.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/reranker.py) | `rerank_documents` | Qwen3-Reranker 精排（query-doc 对打分，失败回退原序） |
+| [reranker.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/reranker.py) | `rerank_documents` | Qwen3-Reranker 精排（query-doc 对打分；本地权重优先、离线优先加载，失败**粘性禁用**并回退原序，不再逐请求重试 HF） |
 | [web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py) | `search_web` / `fetch_url` | 联网检索（DeepSeek 官方 API **仅经 LiteLLM 透传**；未配置代理 fail-closed；408/429/5xx 退避重试，4xx 不重试直接抛 `WebSearchError`） |
 
 #### 5.2.9 新增核心模块
