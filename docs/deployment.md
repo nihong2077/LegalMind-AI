@@ -87,7 +87,7 @@ docker compose up -d fastapi
 
 ### deploy/ 精简编排
 
-[deploy/docker-compose.yml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/deploy/docker-compose.yml) 是一个**简化部署**，只含 `backend` / `frontend` / `redis` 三个服务（build 指向 `../backend`、`../frontend`），**不包含** postgres / qdrant / litellm / kafka / jaeger / workers，环境变量也更少（`REDIS_URL`、`DEEPSEEK_API_KEY`、`LITELLM_PROXY_URL`、`LITELLM_VIRTUAL_KEY`）。配套示例为 [deploy/env.example](file:///home/jing/Documents/trae_projects/LegalMind%20AI/deploy/env.example)（`OPENAI_API_KEY`、`REDIS_URL`、`BACKEND_PORT`、`NEXT_PUBLIC_BACKEND_URL`）。**生产/完整功能请以根目录 compose 为准**。
+[deploy/docker-compose.yml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/deploy/docker-compose.yml) 是一个**简化部署**，只含 `backend` / `frontend` / `redis` 三个服务（build 指向 `../backend`、`../frontend`），**不包含** postgres / qdrant / litellm / kafka / jaeger / workers，环境变量也更少（`REDIS_URL`、`LITELLM_PROXY_URL`、`LITELLM_VIRTUAL_KEY`；**不注入真实 `DEEPSEEK_API_KEY`**，LLM 须指向外部 LiteLLM 服务）。配套示例为 [deploy/env.example](file:///home/jing/Documents/trae_projects/LegalMind%20AI/deploy/env.example)（`LITELLM_PROXY_URL`、`LITELLM_VIRTUAL_KEY`、`REDIS_URL`、`BACKEND_PORT`、`NEXT_PUBLIC_BACKEND_URL`）。**生产/完整功能请以根目录 compose 为准**。
 
 ## 4. 数据库初始化
 
@@ -172,7 +172,7 @@ docker compose up -d fastapi
 - 上游 `deepseek-v4-pro` / `deepseek-flash` 两个模型均以 `api_key: os.environ/DEEPSEEK_API_KEY` 在**代理侧**注入真实 key；
 - 联网检索 `pass_through_endpoints`（`/v1/tools/search`、`/v1/tools/fetch`）由代理注入 `Authorization: Bearer os.environ/DEEPSEEK_API_KEY`，且**刻意不设 `forward_headers`**，避免客户端 key 覆盖注入的真实 key；
 - 后端持有的是 `LITELLM_VIRTUAL_KEY`（虚拟 key），经代理鉴权后转发。
-- ⚠️ **核实提示**：根 compose 的 `fastapi` 段**同时**也把 `DEEPSEEK_API_KEY` 透传进 API 容器（`- DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}`），与 README「绝不注入后端 API 容器」的表述存在不一致。此处按配置事实如实标注。
+- 根 compose 的 `fastapi` 段**不再**透传 `DEEPSEEK_API_KEY`（真实 key 仅出现在 `litellm` 服务的 `environment` 中）；后端容器只持有 `LITELLM_VIRTUAL_KEY`，与 README「绝不注入后端 API 容器」一致。
 
 ### 5.6 本地微调模型
 | 变量 | 默认值 | 说明 |

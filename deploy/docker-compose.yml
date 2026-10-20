@@ -5,7 +5,7 @@ services:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      # 密钥隔离：真实厂商 key 绝不注入后端容器；LLM 一律经（外部）LiteLLM 代理调用
       - LITELLM_PROXY_URL=http://litellm:4000
       - LITELLM_VIRTUAL_KEY=${LITELLM_VIRTUAL_KEY}
     depends_on:

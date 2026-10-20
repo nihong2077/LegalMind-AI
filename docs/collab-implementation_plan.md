@@ -1063,9 +1063,9 @@ prometheus job 与 `deploy/observability` 目录结构均与仓库一致；修�
 §9.8 旧前端重定向目标（补正 `/knowledge→/search`、`/cases→/memory?view=cases`、`/court→?template=court`，
 并澄清旧**前端**页面文件已物理删除）与 §11 前端组件实际位置（在 `frontend/components/` 而非 `app/components/`）。
 
-**如实标注的配置不一致**：根 `docker-compose.yml` 的 `fastapi` 段仍以
-`DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}` 透传进 API 容器，与「LLM 密钥绝不进后端 API 容器」的硬约束
-存在冲突；已在 deployment.md §5.5 按配置事实标注，**留待后续卡决定是否移除该透传**。
+**密钥隔离收口**：根 `docker-compose.yml` 的 `fastapi` 段原先以
+`DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}` 透传真实 key 进 API 容器，与「LLM 密钥绝不进后端 API 容器」的硬约束冲突；
+现已移除该透传——真实 key 仅由 `litellm` 服务消费，后端容器只持 `LITELLM_VIRTUAL_KEY`。
 
 **验证**：文档为纯 Markdown 事实描述，无代码变更；抽查命令（`wc -l`、route decorator 枚举、
 `ls backend/sql/init`、`find deploy/observability`、镜像/端口 grep）均已逐项比对通过。

@@ -187,7 +187,8 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production-use-at-least-32-chars}
       - LITELLM_PROXY_URL=http://litellm:4000
       - LITELLM_VIRTUAL_KEY=${LITELLM_VIRTUAL_KEY}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      # 密钥隔离：真实 DEEPSEEK_API_KEY 绝不注入 API 容器，仅由 litellm 服务消费；
+      # 后端一律经 LITELLM_PROXY_URL + LITELLM_VIRTUAL_KEY（虚拟 key）调用 LLM。
       # T0.7 OpenTelemetry（常开；jaeger 宕机仅丢 trace，不阻断业务）
       - OTEL_ENABLED=true
       - OTEL_SERVICE_NAME=legalmind-backend
