@@ -12,6 +12,7 @@ from app.core.redis_client import (
     TASK_STATUS_PREFIX,
     TASK_STREAM_PREFIX,
     close_redis,
+    create_task_record,
     enqueue_task,
     generate_task_id,
     get_redis,
@@ -104,6 +105,38 @@ async def test_enqueue_task_idempotent(mock_redis):
     assert task_id == "existing-id"
     mock_redis.hset.assert_not_called()
     mock_redis.rpush.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_task_record_registers_without_queue(mock_redis):
+    """T3.4：仅登记状态行，不投递旧队列（供 Kafka 异步链路复用轮询问询语义）。"""
+    import app.core.redis_client as mod
+    mod.redis_client = mock_redis
+
+    mock_redis.hexists.return_value = False
+    mock_pipe = AsyncMock()
+    mock_redis.pipeline.return_value = mock_pipe
+
+    task_id = await create_task_record(
+        "document_analysis", {"doc_id": "d1"}, task_id="tid-1"
+    )
+    assert task_id == "tid-1"
+    mock_pipe.hset.assert_called_once()
+    mock_pipe.rpush.assert_not_called()          # 不投递旧队列
+    mock_pipe.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_task_record_idempotent(mock_redis):
+    import app.core.redis_client as mod
+    mod.redis_client = mock_redis
+
+    mock_redis.hexists.return_value = True
+    task_id = await create_task_record(
+        "document_analysis", {"doc_id": "d1"}, task_id="tid-2"
+    )
+    assert task_id == "tid-2"
+    mock_redis.pipeline.assert_not_called()
 
 
 @pytest.mark.asyncio

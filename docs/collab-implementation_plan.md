@@ -898,7 +898,96 @@ PATCH 切换）；全量后端 **347 passed**（346 + 1，无回归）。前端�
 全量后端 **352 passed**（347 + 5，无回归）。
 
 **遗留**：`/search/unified` 的转发/引用建群接口与前端搜索页（`app/search/*`、
-`components/search/*`）、旧 `/knowledge` 收编 → T3.2。
+`components/search/*`）、旧 `/knowledge` 收编 → T3.2（**已交付，见 §3.21**）。
+
+### 3.21 T3.2 交付记录 ✅ —— 前端搜索页 + 转发/引用建群 + /knowledge 收编
+
+对齐 [collab-ui-refactor_plan.md](collab-ui-refactor_plan.md) §4.4/§4.5/§5.5：统一搜索框 + Tab
+（`全部/法规/类案/我的记忆/会话记录`），每条结果可「转发到…」「引用并新建协同群」，旧 `/knowledge` 收编为次级入口。
+
+**范围（用户拍板）**：全量交付（页面 + Tab + 转发/引用建群，含新后端端点）；「转发到…」按
+**仅作上下文卡片、不触发轮次** 语义实现。
+
+**后端**（`backend/app/routers/conversations.py`）：新增 `POST /api/conversations/{id}/forward`
+（`ForwardMessageRequest{card_type, citations[], content}`）：校验属主 → `store.insert_message`
+（`msg_type=card`、`round=0`、`metadata={forwarded,card_type,citations,forward_source:"search"}`）
+→ `push_recent_message` 进热缓存 + `_emit_message` SSE 广播；**不创建轮次**（返回 `turn_id=None`）。
+空内容 → 40001。
+
+**前端**：
+- `app/lib/search.ts`：`/api/search/unified` 类型与请求、`forwardToConversation`，以及
+  结果→引用卡/落库正文归一（`resultTitle/resultBody/resultToCitation/resultToForwardText/resultCardType`）。
+- `store/useSearchStore.ts`：输入 / Tab / 四路结果 / 加载错误态；**始终四路全查**，Tab 仅前端过滤（切 Tab 不重复请求）。
+- `components/search/*`：`SearchBar`（回车/热门词）、`SearchResults`（5 Tab + 计数 + 单路失败隔离提示 +
+  每条「转发到…/引用并新建协同群」，会话记录另有「打开会话」）、`ForwardDialog`（选已有会话 → forward，不触发轮次）、
+  `NewGroupFromQuoteDialog`（选案情模板 → 建群 → 引用内容作为首条发言起首轮协同）、`KnowledgeBrowsePanel`
+  （法条/类案/策略分类树 + 单域语义检索，次级入口）。
+- `app/search/page.tsx`：`IconRail` ｜ 主区（搜索模式 ↔ 知识库浏览模式）。
+- `IconRail` 新增「案情搜索」入口；`AuthGuard` 将 `/knowledge` 重定向至 `/search`。
+- `MessageBubble` 卡片标题映射扩展 `memory_citation→记忆引用`、`message_citation→会话引用`。
+
+**验收对齐**：转发卡片以 `msg_type=card` 落入会话历史（`content` 为 `【标题】正文`），
+进入后续轮次共享上下文窗，Agent 可引用；转发本身不消耗轮次。
+
+**验证**：`backend/tests/test_conversations_api.py` 新增 3 例：转发落库 + SSE 且 `turn_id=None`、
+空内容 → 40001、越权 → 40301；全量后端 **355 passed**（352 + 3，无回归）。
+前端本机无 Node（WSL），仅人工核对类型 / 路由。
+
+**遗留**：`app/knowledge/page.tsx` 物理删除与 `/search` 真机联调 → T4.1；T3.3 sse/http 韧性、T3.4 可观测。
+
+### 3.22 T3.3 交付记录 ✅ —— SSE 自动重连收口 + 统一「重试」按钮（http 429 退避已有）
+
+对齐验收 **O4「断网 30s 无重无丢」**。
+
+**现状核查（关键发现）**：`http.ts` 的 429/502/503/504 指数退避（遵守 `Retry-After`、仅幂等 / 带 Idempotency-Key）
+与 `sse.ts` 的自实现重连（重换票 + `last_id` 回放去重）在 T0.12/T1.8 **已具备**，本卡真正缺口有二：
+1. 断线重连预算不足：原 `MAX_RETRIES=5`（延迟 0.5/1/2/4/8s，累计 ≈15.5s）撑不过 30s 断网 → 不满足 O4。
+2. 「错误重试」按钮**误接**：`ConversationView` 的「重试」一律调 `retryLast()`（重发上一条文本），
+   流断开时点它会误重发消息而非重连。
+
+**改动**：
+- `app/lib/sse.ts`：`MAX_RETRIES` 5→**12**、退避延迟封顶 **8s**（累计 ≈71s，覆盖 30s 断网）；
+  句柄新增 `reconnect()`（重置退避计数并立即重建连接；用户已 `close()` 则无效）。
+- `store/useCollabStreamStore.ts`：新增 `errorSource: 'stream'|'history'|'send'|'turn'|null`，在各错误落点标注来源；
+  保存 `activeReconnect`；新增统一 `retry()`：`stream`→`reconnect()`、`history`→`open(conversationId)` 重载、
+  `send|turn`→`retryLast()`（重发）。
+- `ConversationView.tsx`：「重试」按钮改调 `retry()`（按来源分派），不再误重发。
+
+**验收对齐**：断网 ≤30s 内自动重连 + `last_id` 回放 → 不丢不重（`id` 单调去重）；超预算或人为失败时
+「重试」按钮可一键重连。
+
+**验证**：前端本机无 Node（WSL），人工核对类型 / 调用链（`sse.ts` 句柄、store 各 error 落点、按钮分派）；
+无后端改动（后端全量 355 passed 维持）。
+
+**遗留**：O4 真机断网演练（切网 30s 观察无重无丢）建议与 T4.1 联调一并进行。
+
+### 3.23 T3.4 交付记录 ✅ —— Prometheus+Grafana 可观测 + doc-tasks 异步 OCR 链路
+
+对齐验收 **O7**。
+
+**可观测**：新增 `deploy/observability/{prometheus.yml, grafana-provisioning/{datasources, dashboards}}`；
+根 compose 加 `observability` profile 的 `prometheus`(:9090)/`grafana`(:3001)（默认不启，
+`docker compose --profile observability up -d` 启用）；预置看板 `legalmind-overview` 覆盖
+QPS/P95/5xx/重试/熔断/Kafka lag/worker 心跳（仅用既有指标名，标签低基数）。
+
+**文档异步链路**：
+- 新消费者 `worker/consumers/doc.py`：消费 `doc-tasks`，驱动 `ocr_service.ocr_file` 异步链路；
+  逐条毒消息隔离，重试 `DOC_MAX_ATTEMPTS` 耗尽后发 `doc-tasks-dlq` 并把任务置 `failed` 再 ack；
+  broker 不可达退化为仅心跳。
+- `worker/main.py`：`doc` 角色由空转 `consume_standby` 改接 `consume_doc_tasks`（`consume_standby` 随之删除）。
+- 入队点 `gateway.analyze_document`：Kafka 开启优先 publish `doc-tasks`（成功仅登记任务台账
+  `create_task_record`，供前端 `/api/tasks/{id}` 轮询），关闭/降级回退旧 `enqueue_task`（行为兼容）；
+  响应结构不变，前端无需改动。
+- `redis_client.py`：抽 `_write_task_record`，新增 `create_task_record`（仅登记状态行、不投旧队列）。
+- compose：`fastapi` 与 `worker-doc` 共享 `uploads_data:/app/uploads`（OCR 需读上传原件）；
+  `worker-doc` 注入 `OCR_API_TOKEN`。
+
+**验证**：`tests/test_doc_worker.py`（8 例：成功/skipped/DLQ/空文本/路径无法解析/消费派发+隔离/降级）
++ `test_redis_client.py` 补 2 例（仅登记不投队列/幂等）；全量后端 **365 passed**（355 + 10，无回归）。
+前端本机无 Node，本卡不动前端；compose/observability YAML 与看板 JSON 已静态校验通过。
+
+**遗留**：O7 真机端到端（`ENABLE_KAFKA=true` + `--profile observability` 起、上传文档→analyze→
+轮询 completed、Grafana 看板）建议与 T4.1 联调一并进行。
 
 ### P2 — 长期记忆（Codex 式）
 
@@ -914,9 +1003,9 @@ PATCH 切换）；全量后端 **347 passed**（346 + 1，无回归）。前端�
 | ID | 任务 | 主要文件 | 验收 |
 |---|---|---|---|
 | T3.1 ✅ | `/search/unified` 并行四路（四级 RAG law/judge + user_memories + messages ILIKE）；转发到会话/引用建群（留 T3.2）（**已交付，见 §3.20**） | `routers/search.py`（新） | 四类结果 Tab 正确 |
-| T3.2 | 前端搜索页（`app/search/*`），旧 /knowledge 收编 | `app/search/*`、`components/search/*` | 转发卡片入群可被 Agent 引用 |
-| T3.3 | sse.ts：Last-Event-ID 自动重连、错误重试按钮；http.ts 429 退避 | `lib/sse.ts`、`lib/http.ts` | O4 断网 30s 无重无丢 |
-| T3.4 | Prometheus+Grafana（observability profile：prometheus/grafana  provisioning + 预置看板：QPS/P95/错误/重试/熔断/lag/心跳）；doc-tasks 走 OCR 异步链路（doc-worker 消费，旧 enqueue 兼容） | `deploy/observability/*`（新）、`worker/consumers/doc.py`、改文档分析入队点 | O7；OCR 异步任务端到端 |
+| T3.2 ✅ | 前端搜索页（`app/search/*`），转发/引用建群（`/conversations/{id}/forward` 上下文卡片，不触发轮次），旧 /knowledge 收编（**已交付，见 §3.21**） | `app/search/*`、`components/search/*`、`routers/conversations.py` | 转发卡片入群可被 Agent 引用 |
+| T3.3 ✅ | sse.ts：Last-Event-ID 自动重连（预算扩至 ≈71s 覆盖 30s 断网）+ 统一「重试」按钮（按 errorSource 分派：重连/重载/重发）；http.ts 429 退避（已有）（**已交付，见 §3.22**） | `lib/sse.ts`、`lib/http.ts`、`store/useCollabStreamStore.ts` | O4 断网 30s 无重无丢 |
+| T3.4 ✅ | Prometheus+Grafana（observability profile：prometheus/grafana  provisioning + 预置看板：QPS/P95/错误/重试/熔断/lag/心跳）；doc-tasks 走 OCR 异步链路（doc-worker 消费，旧 enqueue 兼容）（**已交付，见 §3.23**） | `deploy/observability/*`（新）、`worker/consumers/doc.py`、改文档分析入队点 | O7；OCR 异步任务端到端 |
 
 ### P4 — 收编、迁移、文档
 

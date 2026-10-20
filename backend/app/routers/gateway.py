@@ -12,8 +12,10 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from ..core.config import settings
+from ..core.events import event_bus
 from ..core.llm_client import LOCAL_FT_MODEL, get_llm_client
 from ..core.redis_client import (
+    create_task_record,
     enqueue_task,
     generate_task_id,
     get_redis,
@@ -736,11 +738,25 @@ async def analyze_document(
     await r.hset(f"{DOCUMENTS_PREFIX}{doc_id}", "status", "analyzing")
 
     task_id = generate_task_id()
-    await enqueue_task(
-        task_type="document_analysis",
-        payload={"doc_id": doc_id, "doc_name": data.get("name", "")},
-        task_id=task_id,
-    )
+    payload = {"doc_id": doc_id, "doc_name": data.get("name", "")}
+    # T3.4：优先走 doc-tasks Kafka 异步 OCR 链路（doc-worker 消费）；
+    # 开关关闭或入队降级时回退旧 Redis 队列（enqueue_task），行为与旧版兼容。
+    sent = False
+    if settings.ENABLE_KAFKA:
+        sent = await event_bus.publish(
+            settings.KAFKA_TOPIC_DOC_TASKS,
+            {**payload, "task_id": task_id, "path": data.get("path", "")},
+            key=doc_id,
+        )
+    if sent:
+        # Kafka 路径不投递旧队列，但需登记状态行，供前端 /api/tasks/{id} 轮询进度
+        await create_task_record(
+            task_type="document_analysis", payload=payload, task_id=task_id
+        )
+    else:
+        await enqueue_task(
+            task_type="document_analysis", payload=payload, task_id=task_id
+        )
 
     return {"task_id": task_id, "doc_id": doc_id, "status": "analyzing"}
 

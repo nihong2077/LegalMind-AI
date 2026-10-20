@@ -1,0 +1,126 @@
+{
+  "uid": "legalmind-overview",
+  "title": "LegalMind 总览（QPS / P95 / 错误 / 重试 / 熔断 / lag / 心跳）",
+  "tags": ["legalmind", "t3.4"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "API QPS（按路由模板）",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(legalmind_http_requests_total[5m])) by (path)",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP P95 延迟（秒，SSE 长流除外）",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(legalmind_http_request_duration_seconds_bucket[5m])) by (le, method))",
+          "legendFormat": "p95 {{method}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "5xx 错误率",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(legalmind_http_requests_total{status=~\"5..\"}[5m])) by (path)",
+          "legendFormat": "5xx {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "外部调用重试 / LLM 调用",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(retry_total[5m])) by (service)",
+          "legendFormat": "retry {{service}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(legalmind_llm_requests_total[5m])) by (status)",
+          "legendFormat": "llm {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "熔断器状态 / 拒绝",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "circuit_breaker_state",
+          "legendFormat": "state {{service}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(circuit_rejected_total[5m])) by (service)",
+          "legendFormat": "rejected {{service}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Kafka 消费积压 lag（按 group/topic/partition）",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "legalmind_kafka_consumer_lag",
+          "legendFormat": "{{group}} {{topic}}/{{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Worker 在线 / 心跳年龄（秒）",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "legalmind_worker_online",
+          "legendFormat": "online {{role}}/{{worker_id}}"
+        },
+        {
+          "refId": "B",
+          "expr": "time() - legalmind_worker_heartbeat_timestamp",
+          "legendFormat": "age {{role}}/{{worker_id}}"
+        }
+      ]
+    }
+  ]
+}

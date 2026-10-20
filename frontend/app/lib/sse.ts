@@ -6,7 +6,8 @@
  *   Authorization 头，故凭票据经 query 鉴权，**URL 里不放 JWT**。
  * - 票据一次性：EventSource 自动重连会复用旧 URL（旧票据）→ 401。因此**自实现重连**：
  *   onerror 时 close 旧连接 → 重新换票 → 重建 EventSource，带指数退避
- *   （0.5s/1s/2s/4s…，上限 5 次），超过上限才回调 onError({retryable:true})。
+ *   （0.5s/1s/2s/4s…，延迟上限 8s，最多 12 次，累计 ≈71s，覆盖 O4「断网 30s 无重无丢」），
+ *   超过上限才回调 onError({retryable:true})；调用方可用 `reconnect()` 手动重连。
  * - 用户显式 close() 后不得再重连（stopped 标志）。
  * - 帧 data 为 JSON 字符串；解析失败（ping/注释/脏数据）忽略。
  * - 按 `id`（Redis Stream id，严格单调）去重：`e.lastEventId` 存在且不大于已记录
@@ -29,8 +30,10 @@ const EVENT_NAMES = [
   'error',
 ] as const
 
-const MAX_RETRIES = 5
+const MAX_RETRIES = 12
 const BASE_DELAY_MS = 500
+/** 重连退避延迟上限，避免长时间断网下间隔无限增长 */
+const MAX_DELAY_MS = 8000
 
 /** Redis Stream id 形如 `{ms}-{seq}`；按数值分段比较，退化时用字典序 */
 function isNewerId(next: string, prev: string): boolean {
@@ -53,7 +56,7 @@ export function openConversationStream(opts: {
   onFrame: (f: SseFrame) => void
   onOpen?: () => void
   onError?: (e: { message: string; retryable: boolean }) => void
-}): { close: () => void } {
+}): { close: () => void; reconnect: () => void } {
   const { conversationId, onFrame, onOpen, onError } = opts
 
   let stopped = false
@@ -98,7 +101,7 @@ export function openConversationStream(opts: {
       onError?.({ message: '实时连接中断，重连多次失败', retryable: true })
       return
     }
-    const delay = BASE_DELAY_MS * 2 ** retries
+    const delay = Math.min(BASE_DELAY_MS * 2 ** retries, MAX_DELAY_MS)
     retries += 1
     clearTimer()
     retryTimer = setTimeout(() => {
@@ -153,6 +156,14 @@ export function openConversationStream(opts: {
       stopped = true
       clearTimer()
       teardown()
+    },
+    /** 手动重连（错误重试按钮）：重置退避计数并立即重建连接；用户已 close 则无效 */
+    reconnect: () => {
+      if (stopped) return
+      retries = 0
+      clearTimer()
+      teardown()
+      void connect()
     },
   }
 }

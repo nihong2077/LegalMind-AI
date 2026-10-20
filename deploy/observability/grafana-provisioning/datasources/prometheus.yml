@@ -1,0 +1,11 @@
+# Grafana 数据源自动装配：指向同 profile 内的 prometheus 服务
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

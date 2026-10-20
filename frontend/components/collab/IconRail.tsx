@@ -12,6 +12,7 @@ import {
   FileText,
   LogOut,
   MessagesSquare,
+  Search,
   Shield,
   User,
 } from 'lucide-react'
@@ -20,6 +21,7 @@ import { useChatStore } from '@/store/useChatStore'
 
 const railItems = [
   { name: '消息中心', icon: MessagesSquare, href: '/messages' },
+  { name: '案情搜索', icon: Search, href: '/search' },
   { name: '记忆', icon: Brain, href: '/memory' },
   { name: '合同审查', icon: FileText, href: '/documents' },
 ]

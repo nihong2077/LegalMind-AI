@@ -44,6 +44,9 @@ export interface StreamErrorState {
   retryable: boolean
 }
 
+/** 错误来源：决定「重试」按钮的动作（重连流 / 重载历史 / 重发消息） */
+export type CollabErrorSource = 'stream' | 'history' | 'send' | 'turn'
+
 /** 工具辐条进度（法规/类案检索，SSE tool 事件） */
 export interface ToolRun {
   agent_id: string
@@ -70,6 +73,8 @@ interface CollabStreamState {
   turnId: string | null
   lastEventId: string
   error: StreamErrorState | null
+  /** 当前错误的来源（决定重试动作） */
+  errorSource: CollabErrorSource | null
   sending: boolean
   connected: boolean
   loadingHistory: boolean
@@ -86,6 +91,8 @@ interface CollabStreamState {
   /** 生成会商纪要（手动触发）：返回的纪要不落聊天气泡式乐观追加，直接并入列表 */
   generateMinutes: () => Promise<void>
   retryLast: () => Promise<void>
+  /** 统一重试：按 errorSource 分派（stream→重连 / history→重载 / send|turn→重发） */
+  retry: () => Promise<void>
 }
 
 // ---------------- 辅助 ----------------
@@ -127,6 +134,7 @@ function normalizeIncoming(raw: any, conversationId: string | null): CollabMessa
 
 // 单例流句柄与兜底定时器（模块级，避免进入 React 渲染）
 let activeClose: (() => void) | null = null
+let activeReconnect: (() => void) | null = null
 let unlockTimer: ReturnType<typeof setTimeout> | null = null
 // open 序号：用于丢弃「被后续 open/close 取消」的滞后异步结果（切换会话/StrictMode 双调用）
 let openToken = 0
@@ -160,6 +168,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
     turnId: null,
     lastEventId: '',
     error: null,
+    errorSource: null,
     sending: false,
     connected: false,
     loadingHistory: false,
@@ -171,6 +180,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         activeClose()
         activeClose = null
       }
+      activeReconnect = null
       clearUnlockTimer()
       set({
         conversationId,
@@ -184,6 +194,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         turnId: null,
         lastEventId: '',
         error: null,
+        errorSource: null,
         sending: false,
         connected: false,
         loadingHistory: true,
@@ -196,20 +207,26 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         set({ messages: sortByCreated(page.messages || []), loadingHistory: false })
       } catch (e) {
         if (token !== openToken) return
-        set({ loadingHistory: false, error: toStreamError(e) })
+        set({ loadingHistory: false, error: toStreamError(e), errorSource: 'history' })
       }
 
       if (token !== openToken) return
 
       // 2) 从 Stream 起点回放：lastEventId 传空，靠 id/合并逻辑去重
-      activeClose = openConversationStream({
+      const handle = openConversationStream({
         conversationId,
         lastEventId: '',
         onFrame: (f) => get().handleFrame(f),
-        onOpen: () => set({ connected: true }),
+        onOpen: () => set({ connected: true, error: null, errorSource: null }),
         onError: (e) =>
-          set({ error: { message: e.message, retryable: e.retryable }, connected: false }),
-      }).close
+          set({
+            error: { message: e.message, retryable: e.retryable },
+            errorSource: 'stream',
+            connected: false,
+          }),
+      })
+      activeClose = handle.close
+      activeReconnect = handle.reconnect
     },
 
     close: () => {
@@ -218,6 +235,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         activeClose()
         activeClose = null
       }
+      activeReconnect = null
       clearUnlockTimer()
       set({
         conversationId: null,
@@ -231,6 +249,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         turnId: null,
         lastEventId: '',
         error: null,
+        errorSource: null,
         sending: false,
         connected: false,
         loadingHistory: false,
@@ -409,6 +428,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
               retryable: f.data?.retryable === true,
             },
             sending: false,
+            errorSource: 'turn',
           })
           return
         }
@@ -445,6 +465,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         messages: sortByCreated([...s.messages, optimistic]),
         sending: true,
         error: null,
+        errorSource: null,
         lastSentText: text,
       }))
 
@@ -462,40 +483,40 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
         }
         armUnlockTimer()
       } catch (e) {
-        set({ error: toStreamError(e), sending: false })
+        set({ error: toStreamError(e), errorSource: 'send', sending: false })
       }
     },
 
     handBack: async () => {
       const { conversationId } = get()
       if (!conversationId) return
-      set({ sending: true, error: null })
+      set({ sending: true, error: null, errorSource: null })
       try {
         // 空 content 仅 hand_back 场景合法；此为控制动作，不落聊天气泡
         await sendCollabMessage(conversationId, { content: '', metadata: { hand_back: true } })
         set({ pending: null, phase: null, phaseText: null, sending: false })
       } catch (e) {
-        set({ error: toStreamError(e), sending: false })
+        set({ error: toStreamError(e), errorSource: 'send', sending: false })
       }
     },
 
     conclude: async () => {
       const { conversationId } = get()
       if (!conversationId) return
-      set({ sending: true, error: null })
+      set({ sending: true, error: null, errorSource: null })
       try {
         // 控制动作：空 content + metadata.conclude；不落聊天气泡
         await sendCollabMessage(conversationId, { content: '', metadata: { conclude: true } })
         set({ pending: null, phase: null, phaseText: null, sending: false })
       } catch (e) {
-        set({ error: toStreamError(e), sending: false })
+        set({ error: toStreamError(e), errorSource: 'send', sending: false })
       }
     },
 
     generateMinutes: async () => {
       const { conversationId } = get()
       if (!conversationId) return
-      set({ sending: true, error: null })
+      set({ sending: true, error: null, errorSource: null })
       try {
         const res = await generateMinutesApi(conversationId)
         if (res.message) {
@@ -505,7 +526,7 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
           }))
         }
       } catch (e) {
-        set({ error: toStreamError(e) })
+        set({ error: toStreamError(e), errorSource: 'send' })
       } finally {
         set({ sending: false })
       }
@@ -514,8 +535,26 @@ export const useCollabStreamStore = create<CollabStreamState>((set, get) => {
     retryLast: async () => {
       const { error, lastSentText } = get()
       if (!error || !lastSentText) return
-      set({ error: null })
+      set({ error: null, errorSource: null })
       await get().send(lastSentText)
+    },
+
+    retry: async () => {
+      const { error, errorSource, conversationId } = get()
+      if (!error) return
+      if (errorSource === 'stream') {
+        // 流断开且自动重连已耗尽 → 手动重建连接（保留已铺历史与流态）
+        activeReconnect?.()
+        set({ error: null, errorSource: null })
+        return
+      }
+      if (errorSource === 'history') {
+        // 历史加载失败 → 重新打开会话（重拉历史 + 建流）
+        if (conversationId) await get().open(conversationId)
+        return
+      }
+      // send / turn：重发上一条文本（send 路径已在无文本时自守）
+      await get().retryLast()
     },
   }
 })

@@ -109,15 +109,10 @@ def generate_task_id() -> str:
     return str(uuid.uuid4())
 
 
-async def enqueue_task(task_type: str, payload: dict, task_id: Optional[str] = None) -> str:
-    r = get_redis()
-    if task_id is None:
-        task_id = generate_task_id()
-
-    exists = await r.hexists(f"{TASK_STATUS_PREFIX}{task_id}", "task_id")
-    if exists:
-        return task_id
-
+async def _write_task_record(
+    r: Any, task_id: str, task_type: str, payload: dict, *, to_queue: bool
+) -> None:
+    """写状态 hash 行（pending）；``to_queue`` 决定是否同步投递旧 Redis 队列。"""
     task_data = {
         "task_id": task_id,
         "task_type": task_type,
@@ -129,10 +124,40 @@ async def enqueue_task(task_type: str, payload: dict, task_id: Optional[str] = N
     }
     pipe = r.pipeline()
     pipe.hset(f"{TASK_STATUS_PREFIX}{task_id}", mapping=task_data)
-    pipe.rpush(TASK_QUEUE_KEY, task_id)
+    if to_queue:
+        pipe.rpush(TASK_QUEUE_KEY, task_id)
     await pipe.execute()
 
+
+async def _register_task(
+    task_type: str, payload: dict, task_id: Optional[str], *, to_queue: bool
+) -> str:
+    r = get_redis()
+    if task_id is None:
+        task_id = generate_task_id()
+
+    exists = await r.hexists(f"{TASK_STATUS_PREFIX}{task_id}", "task_id")
+    if exists:
+        return task_id
+
+    await _write_task_record(r, task_id, task_type, payload, to_queue=to_queue)
     return task_id
+
+
+async def enqueue_task(task_type: str, payload: dict, task_id: Optional[str] = None) -> str:
+    """登记任务状态行并投递旧 Redis 队列（``legalmind:task_queue``）。"""
+    return await _register_task(task_type, payload, task_id, to_queue=True)
+
+
+async def create_task_record(
+    task_type: str, payload: dict, task_id: Optional[str] = None
+) -> str:
+    """仅登记任务状态行（不投递旧队列）。
+
+    Kafka 异步链路（T3.4 doc-tasks）复用同一 task 状态行，使前端仍可经
+    ``/api/tasks/{task_id}`` 轮询进度；与 ``enqueue_task`` 一样保持幂等。
+    """
+    return await _register_task(task_type, payload, task_id, to_queue=False)
 
 
 async def get_task_status(task_id: str) -> Optional[dict]:

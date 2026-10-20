@@ -121,6 +121,14 @@ MEMORY_EXTRACT = Counter(
     labelnames=("action",),  # merge/prompt/new
 )
 
+# ---------------- 文档/OCR 异步任务（T3.4） ----------------
+
+DOC_TASK = Counter(
+    "legalmind_doc_task_total",
+    "文档异步任务消费者终态计数",
+    labelnames=("result",),  # ok/failed/dlq/skipped
+)
+
 
 # ============================================================
 # HTTP 指标 ASGI 中间件（轻量纯 ASGI，位于 RequestContext 内侧）

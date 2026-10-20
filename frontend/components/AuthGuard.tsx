@@ -9,7 +9,7 @@ import { useChatStore } from '@/store/useChatStore'
 const PUBLIC_PATHS = ['/', '/login']
 
 // 已并入消息中心的旧页面：从导航隐藏，且直接访问时重定向到 /messages
-const MERGED_PATHS = ['/chat', '/court', '/knowledge', '/dashboard']
+const MERGED_PATHS = ['/chat', '/court', '/dashboard']
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -36,6 +36,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     // /cases 已由记忆模块的「案件视图」取代（T2.4）
     if (authed && pathname === '/cases') {
       router.replace('/memory?view=cases')
+    }
+    // /knowledge 已收编为搜索页的「知识库浏览」次级入口（T3.2）
+    if (authed && pathname === '/knowledge') {
+      router.replace('/search')
     }
     setChecking(false)
   }, [pathname, router, checkAuth])

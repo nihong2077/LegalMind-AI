@@ -751,3 +751,57 @@ async def test_generate_minutes_endpoint(client, app):
 async def test_generate_minutes_unknown_conversation_404(client):
     resp = await client.post(f"/api/conversations/{uuid.uuid4()}/minutes")
     assert resp.status_code == 404 and resp.json()["code"] == 40004
+
+
+# ============================================================
+# 转发到会话（T3.2）：POST /{id}/forward —— 上下文卡片，不触发轮次
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_forward_card_no_turn(client, fake_redis):
+    conv = await _create_group(client)
+    cid = conv["id"]
+    citation = {"source": "民法典", "title": "第五百七十七条", "content": "违约责任"}
+    resp = await client.post(
+        f"/api/conversations/{cid}/forward",
+        json={"card_type": "law_citation", "citations": [citation], "content": "违约责任条文"},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    # 关键：不起轮次
+    assert data["turn_id"] is None
+    assert data["status"] == "forwarded"
+    msg = data["message"]
+    assert msg["msg_type"] == "card"
+    assert msg["metadata"]["forwarded"] is True
+    assert msg["metadata"]["citations"] == [citation]
+    assert msg["round"] == 0
+
+    # 落库可见（进历史，可供后续轮次 Agent 引用）
+    listed = await client.get(f"/api/conversations/{cid}/messages")
+    msgs = listed.json()["data"]["messages"]
+    assert [m["id"] for m in msgs] == [msg["id"]]
+    # SSE 广播一条（与 send_message 一样走 message 事件）
+    events = await fake_redis.xrange(rc_mod.conv_events_key(cid))
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_forward_empty_rejected(client):
+    conv = await _create_group(client)
+    cid = conv["id"]
+    resp = await client.post(
+        f"/api/conversations/{cid}/forward", json={"content": "   ", "citations": []}
+    )
+    assert resp.status_code == 400 and resp.json()["code"] == 40001
+
+
+@pytest.mark.asyncio
+async def test_forward_ownership_forbidden(client, app):
+    conv = await _create_group(client)
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "intruder"}
+    resp = await client.post(
+        f"/api/conversations/{conv['id']}/forward", json={"content": "越权转发"}
+    )
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "u1"}
+    assert resp.status_code == 403 and resp.json()["code"] == 40301

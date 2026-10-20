@@ -8,9 +8,11 @@
    - 实例 key ``legalmind:worker:{worker_id}``，TTL 30s，value 为元信息 JSON；
    - 在线索引 ZSET ``legalmind:workers:online``（score=最后心跳 epoch，
      顺带修剪过期成员，滚动 TTL 防止全员死亡后索引永驻）；
-3. ``ENABLE_KAFKA=true`` 时按角色订阅对应 topic 加入消费组：
-   **collab 角色接真实消费器**（``consumers/collab.py`` 驱动轮次执行，T1.6），
-   memory/doc 仍空转待命（真实逻辑由 T2.2/T3.4 落地）；broker 不可达则退化为仅心跳；
+3. ``ENABLE_KAFKA=true`` 时按角色订阅对应 topic 加入消费组，三角色均接真实消费器：
+   **collab** 驱动轮次执行（``consumers/collab.py``，T1.6）、
+   **memory** 驱动记忆抽取（``consumers/memory.py``，T2.2）、
+   **doc** 驱动文档 OCR 异步任务（``consumers/doc.py``，T3.4）；
+   broker 不可达则退化为仅心跳；
 4. **collab 角色另跑孤儿扫描**（``orphan_scan_loop``）：周期认领租约过期的僵死轮次续跑，
    与消费器共用同一 ``TurnRunner``（T1.6 §3.2 崩溃接力）；
 5. SIGTERM/SIGINT → 停心跳/HTTP/消费者，关连接，优雅退出（compose stop 10s 内）。
@@ -33,18 +35,14 @@ from aiohttp import web
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from ..core.config import settings
-from ..core.events import event_bus, make_consumer
+from ..core.events import event_bus
 from ..core.logging import setup_logging
-from ..core.metrics import (
-    KAFKA_CONSUMER_MESSAGES,
-    WORKER_HEARTBEAT_TS,
-    WORKER_ONLINE,
-    record_kafka_lag,
-)
+from ..core.metrics import WORKER_HEARTBEAT_TS, WORKER_ONLINE
 from ..core.redis_client import close_redis, init_redis
 from ..core.tracing import setup_tracing
 from ..services.collab.runner import make_turn_runner
 from .consumers.collab import consume_turns, orphan_scan_loop
+from .consumers.doc import consume_doc_tasks
 from .consumers.memory import consume_memory_events
 
 logger = logging.getLogger("app.worker")
@@ -235,52 +233,6 @@ async def serve_health(
         await runner.cleanup()
 
 
-async def consume_standby(
-    role: str, stop_event: asyncio.Event, standby_state: dict
-) -> None:
-    """ENABLE_KAFKA=true：加入角色消费组空转待命。骨架不处理消息。"""
-    topic = role_topic(role)
-    group_id = f"legalmind-worker-{role}"
-    consumer = make_consumer([topic], group_id=group_id)
-    started = False
-    try:
-        try:
-            await asyncio.wait_for(consumer.start(), timeout=20)
-            started = True
-        except Exception as e:
-            # broker 不可达不致命：退化为仅心跳，compose 重启或 T1.6 再接。
-            # start 超时会取消其内部协程，已建连接/后台任务必须显式 stop 清理，
-            # 否则反复重连会在进程内累积 socket 与 Fetcher 任务。
-            standby_state["kafka"] = "degraded"
-            logger.warning("worker.consumer_start_failed role=%s error=%s（仅心跳待命）", role, e)
-            try:
-                await asyncio.wait_for(consumer.stop(), timeout=5)
-            except Exception as stop_err:
-                logger.debug("worker.consumer_stop_after_start_failed role=%s error=%s", role, stop_err)
-            return
-        standby_state["kafka"] = "standby"
-        logger.info("worker.standby topic=%s group=%s", topic, group_id)
-        poll_count = 0
-        while not stop_event.is_set():
-            data = await consumer.getmany(timeout_ms=1000, max_records=10)
-            count = sum(len(msgs) for msgs in data.values())
-            if count:
-                logger.debug("worker.standby.poll topic=%s count=%d（骨架不处理）", topic, count)
-                KAFKA_CONSUMER_MESSAGES.labels(group=group_id, topic=topic).inc(count)
-                await consumer.commit()
-            # ~每 10 轮（≈10s）刷新一次各分区 lag gauge
-            poll_count += 1
-            if poll_count % 10 == 0:
-                try:
-                    await record_kafka_lag(consumer, group_id)
-                except Exception as e:
-                    logger.debug("worker.lag_probe_failed %s", e)
-    finally:
-        if started:
-            await consumer.stop()
-            logger.info("worker.consumer_stopped role=%s", role)
-
-
 # ---------- 入口 ----------
 
 async def amain(role: str) -> int:
@@ -347,7 +299,10 @@ async def amain(role: str) -> int:
         else:
             tasks.append(
                 asyncio.create_task(
-                    consume_standby(role, stop_event, standby_state), name="kafka"
+                    consume_doc_tasks(
+                        stop_event, worker_id=worker_id, standby_state=standby_state
+                    ),
+                    name="kafka",
                 )
             )
     else:

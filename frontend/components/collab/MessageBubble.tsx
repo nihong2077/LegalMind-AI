@@ -55,7 +55,11 @@ export default function MessageBubble({
           ? '法规引用'
           : cardType === 'web_citation'
             ? '联网检索'
-            : '会商卡片'
+            : cardType === 'memory_citation'
+              ? '记忆引用'
+              : cardType === 'message_citation'
+                ? '会话引用'
+                : '会商卡片'
     return (
       <div className="my-2 rounded-xl border border-blue-200 bg-white overflow-hidden">
         <div className="px-3 py-2 bg-blue-50 flex items-center gap-2">

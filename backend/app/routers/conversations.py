@@ -131,6 +131,17 @@ class ForkTurnRequest(BaseModel):
     update: Optional[dict[str, Any]] = None
 
 
+class ForwardMessageRequest(BaseModel):
+    """转发搜索结果到会话（T3.2）：仅作上下文卡片，不触发轮次。
+
+    - ``citations`` 对齐前端引用卡渲染形状（source/title/url/content/score）；
+    - ``content`` 为可读正文，落库后进入后续轮次的共享上下文窗，供 Agent 引用。
+    """
+    card_type: str = Field(default="reference", max_length=64)
+    citations: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    content: str = Field(default="", max_length=4000)
+
+
 # ============================================================
 # 事件辅助
 # ============================================================
@@ -484,6 +495,46 @@ async def _resume_message(
 # ============================================================
 # 会商纪要（T1.9-M2）
 # ============================================================
+
+@router.post("/{conversation_id}/forward", status_code=201)
+async def forward_to_conversation(
+    body: ForwardMessageRequest,
+    store: ConversationStore = Depends(get_store),
+    conversation: dict = Depends(require_owned_conversation),
+    uid: str = Depends(get_uid),
+):
+    """把搜索结果作为「上下文卡片」转发进会话（T3.2）。
+
+    与 ``send_message`` 的关键差异：**不起新轮次**。仅落库 + 进热缓存 + SSE 广播，
+    使该卡片进入后续轮次的共享上下文窗，供 Agent 在讨论中引用。
+    """
+    conversation_id = conversation["id"]
+    if not body.content.strip() and not body.citations:
+        raise InvalidParamsError("转发内容不能为空")
+
+    metadata = {
+        "forwarded": True,
+        "card_type": body.card_type,
+        "citations": body.citations,
+        "forward_source": "search",
+    }
+    message = await store.insert_message(
+        conversation_id,
+        sender_type="user",
+        sender_id=uid,
+        sender_name=uid,
+        content=body.content,
+        msg_type="card",
+        round=0,
+        metadata=metadata,
+    )
+    await push_recent_message(conversation_id, message)
+    event_id = await _emit_message(conversation_id, message)
+    return success(
+        {"message": message, "event_id": event_id, "turn_id": None, "status": "forwarded"},
+        message="已转发",
+    )
+
 
 @router.post("/{conversation_id}/minutes", status_code=201)
 async def generate_minutes(

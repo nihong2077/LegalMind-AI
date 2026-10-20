@@ -196,6 +196,9 @@ services:
       - ENABLE_KAFKA=${ENABLE_KAFKA:-false}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_CLIENT_ID=legalmind-backend
+    volumes:
+      # T3.4：与 worker-doc 共享上传目录，OCR 异步链路需读取上传的文档原件
+      - uploads_data:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -278,6 +281,11 @@ services:
       - ENABLE_KAFKA=${ENABLE_KAFKA:-false}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_CLIENT_ID=legalmind-worker-doc
+      # T3.4：OCR 异步链路鉴权（走 PaddleOCR AIStudio 任务 API）
+      - OCR_API_TOKEN=${OCR_API_TOKEN:-}
+    volumes:
+      # T3.4：与 fastapi 共享上传目录，消费 doc-tasks 时读取原始文档
+      - uploads_data:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -305,9 +313,40 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ---- T3.4 可观测（profile=observability，默认不启）----
+  #   docker compose --profile observability up -d
+  #   Prometheus :9090；Grafana :3001（预置看板见 deploy/observability/…）
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: legalmind-prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: legalmind-grafana
+    profiles: ["observability"]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./deploy/observability/grafana-provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   redis_data:
   postgres_data:
   qdrant_data:
   litellm_db_data:
   kafka_data:
+  uploads_data:
+  grafana_data:

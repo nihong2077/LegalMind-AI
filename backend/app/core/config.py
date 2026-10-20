@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     KAFKA_TOPIC_MEMORY: str = "memory-events"      # 记忆抽取/合并事件
     KAFKA_TOPIC_MEMORY_DLQ: str = "memory-events-dlq"  # 记忆抽取死信（T2.2：重试耗尽）
     KAFKA_TOPIC_DOC_TASKS: str = "doc-tasks"       # 文档/OCR 异步任务
+    KAFKA_TOPIC_DOC_DLQ: str = "doc-tasks-dlq"     # 文档异步任务死信（T3.4：重试耗尽）
     KAFKA_CONNECT_TIMEOUT: float = 5.0             # 懒连首次建连超时（秒）
     KAFKA_CLIENT_ID: str = "legalmind-backend"
 
@@ -122,6 +123,10 @@ class Settings(BaseSettings):
     MEMORY_RETRY_BACKOFF: float = 1.0              # 抽取重试间隔基准（秒，attempt 递增）
     MEMORY_RECALL_TOP_K: int = 5                   # 对话链路 prepare 召回的用户记忆条数（T2.3）
     MEMORY_RECALL_MIN_SCORE: float = 0.0           # 记忆召回最低相似度阈值（0=不过滤）
+
+    # ---- 文档/OCR 异步任务（T3.4：doc-worker 消费 doc-tasks）----
+    DOC_MAX_ATTEMPTS: int = 3                      # OCR 失败重试上限，达上限进 DLQ + status=failed
+    DOC_RETRY_BACKOFF: float = 1.0                 # OCR 重试间隔基准（秒，attempt 递增）
 
     # ---- 联网检索（DeepSeek 官方 tools：Search / Fetch，P2-WebSearch）----
     WEB_SEARCH_ENABLED: bool = True              # 发言 Agent 前置联网决策总开关

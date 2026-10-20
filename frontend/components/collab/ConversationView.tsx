@@ -35,7 +35,7 @@ export default function ConversationView({ conversation, agents }: ConversationV
   const send = useCollabStreamStore((s) => s.send)
   const handBack = useCollabStreamStore((s) => s.handBack)
   const conclude = useCollabStreamStore((s) => s.conclude)
-  const retryLast = useCollabStreamStore((s) => s.retryLast)
+  const retry = useCollabStreamStore((s) => s.retry)
   const upsertConversation = useCollabStore((s) => s.upsertConversation)
 
   const isGroup = conversation.type === 'group'
@@ -240,7 +240,7 @@ export default function ConversationView({ conversation, agents }: ConversationV
           </span>
           {error.retryable && (
             <button
-              onClick={() => void retryLast()}
+              onClick={() => void retry()}
               disabled={sending}
               className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-600 hover:bg-red-100 transition-colors flex-shrink-0 disabled:opacity-40"
             >
