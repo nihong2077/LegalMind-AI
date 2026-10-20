@@ -123,11 +123,15 @@ CREATE TABLE IF NOT EXISTS memories (
     source_message_id       UUID,
     status                  VARCHAR(16) NOT NULL DEFAULT 'active'
                             CHECK (status IN ('active', 'archived')),
+    starred                 BOOLEAN NOT NULL DEFAULT false, -- 星标/置顶（T2.4）
     embedding_status        VARCHAR(16) NOT NULL DEFAULT 'pending'
                             CHECK (embedding_status IN ('pending', 'done', 'failed')),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 已有数据卷的幂等迁移（新建库走上方 CREATE TABLE，无需重复执行）
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_memories_user
     ON memories (user_id, status, updated_at DESC);

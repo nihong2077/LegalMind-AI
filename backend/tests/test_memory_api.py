@@ -39,7 +39,7 @@ class FakeMemoryStore:
         return f"2026-01-01T00:00:{self._seq:02d}"
 
     async def list(self, user_id, *, scope=None, memory_type=None, case_id=None,
-                   status=None, q=None, limit=20, offset=0):
+                   status=None, starred=None, q=None, limit=20, offset=0):
         rows = [dict(r) for r in self._rows.values() if r["user_id"] == user_id]
         if scope:
             rows = [r for r in rows if r["scope"] == scope]
@@ -49,9 +49,11 @@ class FakeMemoryStore:
             rows = [r for r in rows if r["case_id"] == case_id]
         if status:
             rows = [r for r in rows if r["status"] == status]
+        if starred is not None:
+            rows = [r for r in rows if r["starred"] == starred]
         if q:
             rows = [r for r in rows if q in (r["content"] or "") or q in (r["summary"] or "")]
-        rows.sort(key=lambda r: r["updated_at"], reverse=True)
+        rows.sort(key=lambda r: (r["starred"], r["updated_at"]), reverse=True)
         total = len(rows)
         return rows[offset:offset + limit], total
 
@@ -61,7 +63,7 @@ class FakeMemoryStore:
 
     async def create(self, user_id, *, scope, memory_type, content, summary=None,
                      importance=3, case_id=None, source_conversation_id=None,
-                     source_message_id=None):
+                     source_message_id=None, starred=False):
         mid = f"mem-{len(self._rows) + 1}"
         self._rows[mid] = {
             "id": mid, "user_id": user_id, "scope": scope, "case_id": case_id,
@@ -69,13 +71,13 @@ class FakeMemoryStore:
             "importance": importance,
             "source_conversation_id": source_conversation_id,
             "source_message_id": source_message_id,
-            "status": "active", "embedding_status": "pending",
+            "status": "active", "starred": starred, "embedding_status": "pending",
             "created_at": self._now(), "updated_at": self._now(),
         }
         return dict(self._rows[mid])
 
     async def update(self, user_id, memory_id, *, content=None, summary=None,
-                     importance=None, memory_type=None, status=None):
+                     importance=None, memory_type=None, status=None, starred=None):
         r = self._rows.get(memory_id)
         if not r or r["user_id"] != user_id:
             return None
@@ -89,6 +91,8 @@ class FakeMemoryStore:
             r["memory_type"] = memory_type
         if status is not None:
             r["status"] = status
+        if starred is not None:
+            r["starred"] = starred
         r["updated_at"] = self._now()
         return dict(r)
 
@@ -187,3 +191,34 @@ async def test_memory_toggle(app_and_store):
         r = await c.put("/api/memories/setting", json={"enabled": False})
         assert r.json()["data"]["enabled"] is False
         assert (await c.get("/api/memories/setting")).json()["data"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_starred_create_filter_and_toggle(app_and_store):
+    app, _ = app_and_store
+    async with _client(app) as c:
+        # 创建时置星标
+        r = await c.post(
+            "/api/memories",
+            json={"memory_type": "fact", "content": "星标记忆", "starred": True},
+        )
+        assert r.status_code == 201
+        starred_mid = r.json()["data"]["id"]
+        assert r.json()["data"]["starred"] is True
+
+        # 默认非星标
+        r = await c.post("/api/memories", json={"memory_type": "fact", "content": "普通记忆"})
+        plain_mid = r.json()["data"]["id"]
+        assert r.json()["data"]["starred"] is False
+
+        # starred 过滤：置顶项排在最前
+        data = (await c.get("/api/memories", params={"starred": "true"})).json()["data"]
+        assert data["total"] == 1 and data["memories"][0]["id"] == starred_mid
+        assert (await c.get("/api/memories")).json()["data"]["memories"][0]["id"] == starred_mid
+
+        # PATCH 切换星标
+        r = await c.patch(f"/api/memories/{plain_mid}", json={"starred": True})
+        assert r.json()["data"]["starred"] is True
+        r = await c.patch(f"/api/memories/{starred_mid}", json={"starred": False})
+        assert r.json()["data"]["starred"] is False
+        assert (await c.get("/api/memories", params={"starred": "true"})).json()["data"]["total"] == 1

@@ -270,6 +270,7 @@ class TurnRunner:
         state = initial_state(
             conversation_id=conversation_id,
             turn_id=turn["turn_id"],
+            user_id=turn.get("user_id") or "",
             case_type=case_type,
             host_agent_id=host or "",
             roster=roster,

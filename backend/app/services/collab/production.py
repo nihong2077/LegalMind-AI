@@ -15,7 +15,9 @@
   其余 → 空（保持通用 interrupt payload）；
 - **conclude_producer**：``court`` → verdict 判决书气泡；其余 → 无追加；
 - **speaker_notice**：[make_speaker_notice](speaker_notice.py)（轮次发言分隔条，
-  中性「下面是 X 发言」，隐藏主持人身份，fail-open）。
+  中性「下面是 X 发言」，隐藏主持人身份，fail-open）；
+- **memory_recall**：[make_memory_recall](memory_recall.py)（T2.3：prepare 节点按用户语义召回
+  top5 长期记忆注入独立块 + ``memory_recall`` 工具事件，开关关闭即不读不写，fail-open）。
 
 设计取舍（对齐 A1「代码只做护栏」，不新增任何图固定边）：
 - 业务分派**只依据 adapter 判据**（[prompts.is_court_template](prompts.py)），无硬编码业务顺序；
@@ -35,6 +37,7 @@ from .agent_nodes import Emitter, make_agent_runner
 from .audit import record_host_decision
 from .conversation_store import ConversationStore
 from .host_skill import HostSkill
+from .memory_recall import make_memory_recall
 from .prompts import is_court_template
 from .registry import RegistryService, get_registry
 from .scheduler_skill import SchedulerSkill
@@ -109,4 +112,5 @@ async def build_production_injectables(
         "interaction_card": interaction_card,
         "conclude_producer": conclude_producer,
         "speaker_notice": make_speaker_notice(store=store, emit=emit),
+        "memory_recall": make_memory_recall(emit=emit),
     }

@@ -787,20 +787,133 @@ AgentNodeRunner 并入资料块/未注入行为不变）；全量后端 **334 pa
 
 **遗留**：无。
 
+### 3.18 T2.3 交付记录 ✅ —— 对话链路 prepare 节点长期记忆召回
+
+**范围**：`prepare` 节点在正式编排前按**语义**召回该用户 top5 长期记忆，注入群上下文
+**独立块**（`【已召回的用户背景记忆】`，**不覆盖任何 Skill 人设 prompt**），并下发
+`memory_recall` 工具进度事件；用户关闭总开关即**不读不写**。
+
+**实现**：
+- `services/collab/memory_recall.py`（新）：`MemoryRecallProvider` + `make_memory_recall(...)`，
+  零侵入范式对齐 `web_decision.make_web_context`。`recall(state)`：开关关/无 `user_id`/无本轮问题
+  → 直接空（不读）；`is_memory_enabled` 为 False → 不读；否则 `embed_text(question)` →
+  `MemoryStore.similar(user_id, top_k=5)` → 回 PG 逐条补水 `content` 并按 `status=active` 过滤 →
+  发 `memory_recall` 工具事件（`running`/`done`/`error` + `result_count`/`elapsed_ms`）；
+  异常 fail-open 返回空，绝不阻断本轮。
+- `state.py`：`CollabState` 增 `user_id`；`initial_state` 增 `user_id` 入参。
+  `runner._initial_state` 传 `turn.get("user_id")`。
+- `graph.py`：`build_collab_graph` 增 `memory_recall` 注入点（默认 `None` → 行为不变）；
+  `prepare_node` 先召回（direct/group 均执行）再走原有工具辐条预取。
+- `production.py`：`build_production_injectables` 增 `"memory_recall": make_memory_recall(emit=emit)`。
+- `core/config.py`：新增 `MEMORY_RECALL_TOP_K=5`、`MEMORY_RECALL_MIN_SCORE=0.0`。
+- 前端 `components/collab/ConversationView.tsx`：工具进度文案新增 `memory_recall → '记忆'`
+  （前端 `tool` 事件要求 `agent_id` 非空，故用 `agent_id="memory_recall"`）。
+
+**关键设计取舍**：
+- **零侵入**：不改任何 Skill 人设 prompt 与流式方法；召回结果只填既有 `state["memories"]` 字段，
+  由既有 `build_group_context` 渲染为独立块。
+- **不读不写一致**：读侧（本条）与写侧（T2.2 `pipeline._ingest`）**共用** `is_memory_enabled`，
+  关开关后两侧同时生效。
+- **fail-open**：嵌入/向量库/PG/事件任一异常仅告警 + `tool:error`，返回空记忆，不阻断编排。
+
+**验证**：`tests/test_memory_recall.py`（10 用例：总开关关/用户关零读零事件、无 user_id/无问题短路、
+正常召回补水 + running/done + `result_count`、已删除/非 active 过滤、`similar`/`embed` 抛错 fail-open、
+事件推送失败不影响召回）；`tests/test_collab_graph.py` +2（prepare 接线：注入件调用一次且落
+`state.memories`、召回件抬异常 fail-open 不阻断）；`tests/test_collab_production.py` 注入件键集合同步更新；
+全量后端 **346 passed**（334 + 12，无回归）。
+
+**遗留**：无（0.75–0.90 去重提示的前端通道仍留待 T2.4 记忆页）。
+
+### 3.19 T2.4 交付记录 ✅ —— 前端记忆页 + 案件视图
+
+**范围**：新增独立「记忆」模块页 `/memory`（分类 Tab / 星标置顶 / 来源跳转 / 编辑 / 删除 /
+手动新增 / 召回总开关），并以 `?view=cases` 提供「案件视图」替代旧 `/cases`。
+
+**实现**：
+- **后端补 `starred` 字段**（此前设计仅「置顶」无字段，T2.4 落地为布尔列）：
+  `sql/init/04-app-schema.sql` `memories` 增 `starred BOOLEAN NOT NULL DEFAULT false`
+  （含 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 幂等迁移）；`core/pg_client.Memory` 同步列；
+  `services/memory/store.py`：`_to_dict` 输出 `starred`，`list()` 支持 `starred` 过滤且
+  排序改为 `starred DESC, updated_at DESC`（实现「置顶」），`create/update` 接收 `starred`；
+  `routers/memory.py`：Create/Update 请求体与 list 查询参数全部透传 `starred`。
+- 前端数据层 `app/lib/memory.ts`（新）：对齐 `/api/memories` 全部端点（list/get/create/update/
+  delete/setting），导出 `MemoryRecord` 类型、`MEMORY_TYPE_TABS` 分类映射
+  （background→用户画像 / fact→案件事实 / demand→诉求与底线 / timeline→时间节点 /
+  preference→策略偏好）与 `memoryTypeLabel`。
+- 状态层 `store/useMemoryStore.ts`（新）：列表 + 过滤（分类/星标/归档/搜索）+ 选中项 + 总开关；
+  `toggleStar` 走 PATCH 后重拉以刷新置顶排序。
+- 组件 `components/memory/`（新）：
+  - `MemoryList`：分类 Tab、星标/归档过滤、搜索、召回总开关、手动新增入口；
+  - `MemoryDetail`：内容/摘要/重要性星级/来源跳转（`source_conversation_id` → `/messages` 选中会话）/
+    编辑/归档/删除/星标；
+  - `MemoryEditor`：新增与编辑共用弹窗（分类/内容/摘要/重要性/星标）；
+  - `CasesPane`：「案件视图」= 协同群聊（`GET /api/conversations` type=group）+ 合同审查记录
+    （本地按用户名隔离键 `legalmind_contract_reviews:{username}`），列表 + 详情两列，
+    群聊可「进入会话」、合同可「查看审查」。
+- 页面 `app/memory/page.tsx`（新）：三栏 `IconRail | 列表 | 详情`，`?view=cases` 时切换 `CasesPane`；
+  `useSearchParams` 以 `Suspense` 包裹。
+- 导航与路由：`components/collab/IconRail.tsx` 增「记忆」图标入口（`/memory`）；
+  `components/AuthGuard.tsx` 将 `/cases` 从「并入消息中心」集合移出，改为重定向
+  `/memory?view=cases`。
+
+**关键设计取舍**：
+- **星标即后端字段**（用户拍板）：跨设备持久，与「PG 为权威源」约定一致；不再用 localStorage 旁路。
+- **案件视图含合同审查**（用户拍板）：旧 `/cases` 覆盖的「协同/合同」两类在案件视图内延续。
+- **零侵入**：仅新增前端页面与组件，未改动消息中心既有组件行为（IconRail 仅追加一项）。
+
+**验证**：后端 `tests/test_memory_api.py` 假 store 同步 `starred` 签名，新增
+`test_starred_create_filter_and_toggle`（创建置星标 / 默认非星标 / `starred=true` 过滤置顶 /
+PATCH 切换）；全量后端 **347 passed**（346 + 1，无回归）。前端无 node 环境，仅做人工类型/路由核对。
+
+**遗留**：旧文件 `app/cases/page.tsx` 现已被 `/cases → /memory?view=cases` 重定向取代，
+其物理删除与其余旧路由（/chat→/messages、/knowledge→/search、/court→/messages）统一留待 T4.1。
+
+### 3.20 T3.1 交付记录 ✅ —— `/api/search/unified` 统一案情搜索（四路并行）
+
+对齐 [collab-ui-refactor_plan.md](collab-ui-refactor_plan.md) §4.4/§5.5：一个搜索框、后端并行多路召回、
+前端按 Tab（`全部/法规/类案/我的记忆/会话记录`）过滤。
+
+**范围（用户拍板）**：本卡**只做后端搜索 API**，把「转发到…」「引用并新建协同群」的接口留到 T3.2；
+「类案」走**四级 RAG `domain=judge`**（与法规源一致，共享 HyDE 链路）；「会话记录」**纳入**第四路。
+
+**实现**（`backend/app/routers/search.py`，新；`EnvelopeRouter` prefix `/api/search`）：
+- `POST /api/search/unified`，请求体 `UnifiedSearchRequest`：`query`（必填，1–500）、
+  `top_k`（默认 5，1–20）、`message_limit`（默认 10，1–50）、`use_hyde`（默认 true）、
+  `case_id`（记忆按案件过滤，可选）、`sources`（可选子集，用于前端单 Tab 过滤）。
+- `SearchBackend` 四路实现（`asyncio.gather` 并行，测试可 override `get_search_backend` 注入 fake）：
+  - `law` / `judge` → 复用 `services/legal/rag_retriever.retrieve_legal_knowledge`
+    （`domain=law` / `domain=judge`，flash 模型做 HyDE）；结果归一化为 `{type,content,source,score,domain,doc_type}`。
+  - `memory` → 先 `is_memory_enabled(user_id)`（关闭则不读，与 T2.3 一致）→ `embed_text(query)` →
+    `MemoryStore.similar(user_id, …)` → PG 逐条补水并过滤 `status=active`，复用 T2.3 召回范式。
+  - `messages` → `select(Message, Conversation.title).join(Conversation)` 且
+    `Conversation.user_id == 登录用户` + `content ILIKE`（`%`/`_`/`\` 已转义），按用户严格隔离。
+- **失败隔离（fail-open）**：每路协程独立 `asyncio.wait_for`（预算 20s），任一路异常只置空该路 +
+  写入 `errors{source:msg}` + 记日志，**其余三路不受影响，绝不 500**。
+- 响应 `success({query, results{law,judge,memory,messages}, counts{…,total}, errors, took_ms})`：
+  `results` 四键恒在（未检索的路为空列表），前端「全部」Tab 即四路拼接。
+
+**验证**：新增 `backend/tests/test_search_api.py`（内存 `FakeBackend`，不依赖 PG/Qdrant/LLM）
+5 例：四类结果各归其位 + counts、`sources` 子集过滤（未选路不触发）、非法 source → 40001、
+空白/空串 query → 40001、单路失败隔离（judge 抛错时其余三路仍返回 + errors 记录）。
+全量后端 **352 passed**（347 + 5，无回归）。
+
+**遗留**：`/search/unified` 的转发/引用建群接口与前端搜索页（`app/search/*`、
+`components/search/*`）、旧 `/knowledge` 收编 → T3.2。
+
 ### P2 — 长期记忆（Codex 式）
 
 | ID | 任务 | 主要文件 | 验收 |
 |---|---|---|---|
 | T2.1 ✅ | Qdrant `user_memories`（1024/Cosine）；memories CRUD API（type/case/q 过滤、开关）（**已交付，见 §3.14**） | `core/qdrant_client.py`、`routers/memory.py`（新）、`services/memory/store.py`（新） | 增删改查+按 user 隔离 |
 | T2.2 ✅ | memory-worker：turn 结束消费 memory-events → flash 抽取结构化记忆 → ≥0.90 合并/0.75-0.90 提示/<0.75 新增 → 重嵌入库；DLQ（**已交付，见 §3.15**） | `worker/consumers/memory.py`、`services/memory/{extractor,pipeline}.py`（新）、`services/collab/runner.py` | 两轮后自动出现记忆 |
-| T2.3 | 对话链路 prepare 节点召回 top5 注入（独立 system 块）+ memory_recall 工具事件；用户关闭即不读不写 | 接入 T1.3 prepare | 删除后不再召回 |
-| T2.4 | 前端记忆页（分类 Tab/星标/来源跳转/编辑/删除/手动新增/总开关）+ 案件视图（替代旧 /cases） | `app/memory/*`、`components/memory/*`（新） | 手测通过 |
+| T2.3 ✅ | 对话链路 prepare 节点召回 top5 注入（独立 system 块）+ memory_recall 工具事件；用户关闭即不读不写（**已交付，见 §3.18**） | 接入 T1.3 prepare | 删除后不再召回 |
+| T2.4 ✅ | 前端记忆页（分类 Tab/星标/来源跳转/编辑/删除/手动新增/总开关）+ 案件视图（替代旧 /cases）（**已交付，见 §3.19**） | `app/memory/*`、`components/memory/*`（新） | 手测通过 |
 
 ### P3 — 搜索 + 前端韧性 + 可观测收尾
 
 | ID | 任务 | 主要文件 | 验收 |
 |---|---|---|---|
-| T3.1 | `/search/unified` 并行多路（四级 RAG+judge 类案+user_memories+messages ILIKE）；转发到会话/引用建群 | `routers/search.py`（新） | 四类结果 Tab 正确 |
+| T3.1 ✅ | `/search/unified` 并行四路（四级 RAG law/judge + user_memories + messages ILIKE）；转发到会话/引用建群（留 T3.2）（**已交付，见 §3.20**） | `routers/search.py`（新） | 四类结果 Tab 正确 |
 | T3.2 | 前端搜索页（`app/search/*`），旧 /knowledge 收编 | `app/search/*`、`components/search/*` | 转发卡片入群可被 Agent 引用 |
 | T3.3 | sse.ts：Last-Event-ID 自动重连、错误重试按钮；http.ts 429 退避 | `lib/sse.ts`、`lib/http.ts` | O4 断网 30s 无重无丢 |
 | T3.4 | Prometheus+Grafana（observability profile：prometheus/grafana  provisioning + 预置看板：QPS/P95/错误/重试/熔断/lag/心跳）；doc-tasks 走 OCR 异步链路（doc-worker 消费，旧 enqueue 兼容） | `deploy/observability/*`（新）、`worker/consumers/doc.py`、改文档分析入队点 | O7；OCR 异步任务端到端 |

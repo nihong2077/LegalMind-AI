@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     MEMORY_MAX_ATTEMPTS: int = 3                   # 抽取失败重试上限，达上限进 DLQ
     MEMORY_TURN_MESSAGES_LIMIT: int = 40           # 单轮喂给抽取器的最多消息条数
     MEMORY_RETRY_BACKOFF: float = 1.0              # 抽取重试间隔基准（秒，attempt 递增）
+    MEMORY_RECALL_TOP_K: int = 5                   # 对话链路 prepare 召回的用户记忆条数（T2.3）
+    MEMORY_RECALL_MIN_SCORE: float = 0.0           # 记忆召回最低相似度阈值（0=不过滤）
 
     # ---- 联网检索（DeepSeek 官方 tools：Search / Fetch，P2-WebSearch）----
     WEB_SEARCH_ENABLED: bool = True              # 发言 Agent 前置联网决策总开关

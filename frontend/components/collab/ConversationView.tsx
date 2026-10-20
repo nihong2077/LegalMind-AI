@@ -208,7 +208,13 @@ export default function ConversationView({ conversation, agents }: ConversationV
                   : t.status === 'error'
                     ? ' 检索失败，已跳过'
                     : ` 检索到 ${t.result_count ?? 0} 条${
-                        t.tool === 'law' ? '法规' : t.tool === 'judge' ? '类案' : '资料'
+                        t.tool === 'law'
+                          ? '法规'
+                          : t.tool === 'judge'
+                            ? '类案'
+                            : t.tool === 'memory_recall'
+                              ? '记忆'
+                              : '资料'
                       }`}
               </span>
             </div>

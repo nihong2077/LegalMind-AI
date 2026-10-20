@@ -368,3 +368,38 @@ async def test_tool_spokes_not_prefetched_when_not_member(reg):
     )
     assert calls == []
     assert not (result.get("retrieved") or {})
+
+
+# ============================================================
+# T2.3：prepare 节点记忆召回接线（零侵入 + fail-open）
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_memory_recall_wired_into_prepare(reg):
+    """注入 memory_recall → prepare 调用一次，结果落 state.memories。"""
+    calls: list[dict] = []
+
+    async def recall(state):
+        calls.append(state)
+        return {"memories": [{"id": "m1", "content": "用户偏好调解", "status": "active"}]}
+
+    _, result = await _run(
+        reg, roster=["plaintiff_lawyer"], max_rounds=1, memory_recall=recall
+    )
+    assert len(calls) == 1  # 每轮仅调用一次
+    assert result["memories"][0]["content"] == "用户偏好调解"
+    assert _spoken(result) == ["plaintiff_lawyer"]  # 召回不影响正常编排
+
+
+@pytest.mark.asyncio
+async def test_memory_recall_failure_fail_open(reg):
+    """召回件抬异常 → 不阻断整轮（图节点 fail-open）。"""
+
+    async def boom(state):  # noqa: ARG001
+        raise RuntimeError("recall down")
+
+    _, result = await _run(
+        reg, roster=["plaintiff_lawyer"], max_rounds=1, memory_recall=boom
+    )
+    assert _spoken(result) == ["plaintiff_lawyer"]
+    assert result.get("memories") in (None, [])  # 未注入记忆

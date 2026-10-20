@@ -30,6 +30,7 @@ INJECTABLE_KEYS = {
     "interaction_card",
     "conclude_producer",
     "speaker_notice",
+    "memory_recall",
 }
 
 

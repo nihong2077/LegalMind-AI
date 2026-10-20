@@ -49,6 +49,7 @@ class CollabState(TypedDict, total=False):
     # 统一 transcript（含角色标记的 additional_kwargs）
     messages: Annotated[list[AnyMessage], add_messages]
     conversation_id: str
+    user_id: str  # 会话属主（T2.3：记忆召回按用户隔离，prepare 读取）
     turn_id: str
     case_type: str
     host_agent_id: str
@@ -81,6 +82,7 @@ def initial_state(
     *,
     conversation_id: str,
     turn_id: str,
+    user_id: str = "",
     case_type: str,
     host_agent_id: str,
     roster: list[str],
@@ -95,6 +97,7 @@ def initial_state(
     state: CollabState = {
         "messages": [],
         "conversation_id": conversation_id,
+        "user_id": user_id,
         "turn_id": turn_id,
         "case_type": case_type,
         "host_agent_id": host_agent_id,

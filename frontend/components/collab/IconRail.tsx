@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
+  Brain,
   FileText,
   LogOut,
   MessagesSquare,
@@ -19,6 +20,7 @@ import { useChatStore } from '@/store/useChatStore'
 
 const railItems = [
   { name: '消息中心', icon: MessagesSquare, href: '/messages' },
+  { name: '记忆', icon: Brain, href: '/memory' },
   { name: '合同审查', icon: FileText, href: '/documents' },
 ]
 

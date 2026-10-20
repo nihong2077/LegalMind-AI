@@ -63,6 +63,7 @@ def _to_dict(row: Memory) -> dict[str, Any]:
         "source_conversation_id": str(row.source_conversation_id) if row.source_conversation_id else None,
         "source_message_id": str(row.source_message_id) if row.source_message_id else None,
         "status": row.status,
+        "starred": bool(row.starred),
         "embedding_status": row.embedding_status,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -80,6 +81,7 @@ class MemoryStore:
         memory_type: Optional[str] = None,
         case_id: Optional[str] = None,
         status: Optional[str] = None,
+        starred: Optional[bool] = None,
         q: Optional[str] = None,
         limit: int = DEFAULT_LIMIT,
         offset: int = 0,
@@ -95,6 +97,8 @@ class MemoryStore:
             conds.append(Memory.case_id == cid)
         if status:
             conds.append(Memory.status == status)
+        if starred is not None:
+            conds.append(Memory.starred == starred)
         if q:
             like = f"%{q}%"
             conds.append(or_(Memory.content.ilike(like), Memory.summary.ilike(like)))
@@ -102,7 +106,7 @@ class MemoryStore:
         stmt = (
             select(Memory)
             .where(*conds)
-            .order_by(Memory.updated_at.desc())
+            .order_by(Memory.starred.desc(), Memory.updated_at.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -135,6 +139,7 @@ class MemoryStore:
         case_id: Optional[str] = None,
         source_conversation_id: Optional[str] = None,
         source_message_id: Optional[str] = None,
+        starred: bool = False,
     ) -> dict:
         row = Memory(
             user_id=user_id,
@@ -147,6 +152,7 @@ class MemoryStore:
             source_conversation_id=_uuid_or_none(source_conversation_id),
             source_message_id=_uuid_or_none(source_message_id),
             status="active",
+            starred=starred,
             embedding_status="pending",
         )
         async with app_session_factory() as session:
@@ -167,6 +173,7 @@ class MemoryStore:
         importance: Optional[int] = None,
         memory_type: Optional[str] = None,
         status: Optional[str] = None,
+        starred: Optional[bool] = None,
     ) -> Optional[dict]:
         mid = _uuid_or_none(memory_id)
         if not mid:
@@ -187,6 +194,8 @@ class MemoryStore:
                 row.memory_type = memory_type
             if status is not None and status != row.status:
                 row.status = status
+            if starred is not None:
+                row.starred = starred
             row.updated_at = _now()
             if content_changed:
                 row.embedding_status = "pending"

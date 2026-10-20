@@ -108,6 +108,9 @@ ConcludeProducer = Callable[[CollabState], Awaitable[list[Any]]]
 # 轮次发言分隔条：把「下一个发言人」以中性系统提示显性化（不暴露主持人身份）。
 # 入参：state、next_speaker(agent_id)、speaker_name；默认 None → 完全不产出分隔条。
 SpeakerNotice = Callable[[CollabState, str, str], Awaitable[None]]
+# P2（T2.3）长期记忆召回：prepare 节点调用，返回 ``{"memories": [...]}`` 或 ``{}``；
+# 默认 None → 不召回（行为与旧实现完全一致）。
+MemoryRecall = Callable[[CollabState], Awaitable[dict[str, Any]]]
 
 
 # ---------------- 默认桩（T1.4/T1.5 会替换） ----------------
@@ -228,6 +231,7 @@ async def build_collab_graph(
     interaction_card: Optional[InteractionCard] = None,
     conclude_producer: Optional[ConcludeProducer] = None,
     speaker_notice: Optional[SpeakerNotice] = None,
+    memory_recall: Optional[MemoryRecall] = None,
     checkpointer: Any = None,
 ) -> Any:
     """构建并编译协同星型图。
@@ -242,6 +246,7 @@ async def build_collab_graph(
         interaction_card: ask_user 中断 payload 的模板化包装（T1.7 court 补证卡片）；默认 None。
         conclude_producer: conclude 收尾后追加气泡的产出器（T1.7 court verdict → 判决书）；默认 None。
         speaker_notice: 轮次发言分隔条生产者（中性「下面是 X 发言」）；默认 None → 不产出。
+        memory_recall: 长期记忆召回件（T2.3）；默认 None → 不召回。
         checkpointer: 传入则绑 AsyncPostgresSaver；为 None 时取全局（未就绪则不持久化）。
     """
     reg = registry or await get_registry()
@@ -262,6 +267,7 @@ async def build_collab_graph(
     _interaction_card = interaction_card  # T1.7：默认 None（保持通用 payload）
     _conclude_producer = conclude_producer  # T1.7：默认 None（保持仅主持人收尾气泡）
     _speaker_notice = speaker_notice  # 分隔条：默认 None（不产出，完全保持既有行为）
+    _memory_recall = memory_recall  # T2.3：默认 None（不召回，完全保持既有行为）
 
     def _allowed_candidates(state: CollabState) -> list[str]:
         """scheduler 候选白名单（**有序**）：roster（去主持人，保持模板顺序）后接工具 Agent。
@@ -287,21 +293,31 @@ async def build_collab_graph(
     # ---- 节点 ----
 
     async def prepare_node(state: CollabState) -> dict[str, Any]:
-        # P2（T2.3）长期记忆召回。
+        update: dict[str, Any] = {}
+        # P2（T2.3）长期记忆召回：按用户语义召回 top5 注入 state.memories（由群上下文渲染为
+        # 独立「已召回的用户背景记忆」块）；开关关闭则既不读也不写。fail-open，不阻断编排。
+        if _memory_recall is not None:
+            try:
+                mem_update = await _memory_recall(state) or {}
+            except Exception as e:
+                logger.warning("[collab] 记忆召回调用失败（忽略）：%s", e)
+                mem_update = {}
+            if mem_update:
+                update.update(mem_update)
         # T1.9-M3：**轮首并行预取**工具辐条（法规/类案材料 + 引用卡）——
         # 对齐 [scheduling_spec §1④/§3.1](../../../../docs/collab-scheduling_spec.md)：
         # 检索类 Agent（``is_tool``）**不占主串行发言位**，由编排器在轮首一次**并行取证**，
         # 结果入共享上下文（``state.retrieved`` → 各 Agent 的资料块）；其发 ``tool`` 事件 +
         # 产出引用卡由 ToolNodeRunner 自身完成（M3）。工具 Agent 非群成员则不预取。
         if (state.get("conv_type") or "") == "direct":
-            return {}
+            return update
         already = state.get("retrieved") or {}
         prefetch = [
             aid for aid in (state.get("roster") or [])
             if aid in tool_ids and aid not in already
         ]
         if not prefetch:
-            return {}
+            return update
         results = await asyncio.gather(
             *[_tool_runner(by_id.get(aid) or {"agent_id": aid}, state) for aid in prefetch],
             return_exceptions=True,
@@ -313,7 +329,8 @@ async def build_collab_graph(
                 continue
             if res:
                 retrieved[aid] = res
-        return {"retrieved": retrieved}
+        update["retrieved"] = retrieved
+        return update
 
     async def host_node(state: CollabState) -> Command:
         # 用户主权（F6）：上一节点（ask_user/接管）标记「结束会商」→ 不调 LLM，直接注入 goto=conclude

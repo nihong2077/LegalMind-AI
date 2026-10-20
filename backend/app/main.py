@@ -19,7 +19,7 @@ from .core.qdrant_client import close_qdrant, init_qdrant
 from .core.redis_client import close_redis, init_redis, redis_health_check
 from .core.response import LegacyEnvelopeMiddleware, register_exception_handlers
 from .core.tracing import instrument_app, setup_tracing
-from .routers import agents, collab, conversations, gateway, memory
+from .routers import agents, collab, conversations, gateway, memory, search
 
 # 尽早统一日志格式（structlog JSON + stdlib 桥接）
 setup_logging()
@@ -221,6 +221,7 @@ app.include_router(conversations.router)
 app.include_router(collab.router)
 app.include_router(agents.router)
 app.include_router(memory.router)
+app.include_router(search.router)
 
 
 @app.get("/")

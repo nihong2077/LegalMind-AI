@@ -417,6 +417,7 @@ class Memory(AppBase):
     source_conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
     source_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    starred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     embedding_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending"
     )

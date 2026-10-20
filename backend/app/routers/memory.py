@@ -47,6 +47,7 @@ class CreateMemoryRequest(BaseModel):
     case_id: Optional[str] = None
     source_conversation_id: Optional[str] = None
     source_message_id: Optional[str] = None
+    starred: bool = False
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -55,6 +56,7 @@ class UpdateMemoryRequest(BaseModel):
     importance: Optional[int] = Field(default=None, ge=1, le=5)
     memory_type: Optional[str] = Field(default=None, min_length=1, max_length=32)
     status: Optional[str] = Field(default=None, pattern="^(active|archived)$")
+    starred: Optional[bool] = None
 
 
 class MemoryToggleRequest(BaseModel):
@@ -92,6 +94,7 @@ async def list_memories(
     memory_type: Optional[str] = Query(default=None),
     case_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    starred: Optional[bool] = Query(default=None),
     q: Optional[str] = Query(default=None),
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
@@ -108,6 +111,7 @@ async def list_memories(
         memory_type=memory_type,
         case_id=case_id,
         status=status,
+        starred=starred,
         q=q,
         limit=limit,
         offset=offset,
@@ -133,6 +137,7 @@ async def create_memory(
         case_id=body.case_id,
         source_conversation_id=body.source_conversation_id,
         source_message_id=body.source_message_id,
+        starred=body.starred,
     )
     return success(memory, message="记忆已新增")
 
@@ -164,6 +169,7 @@ async def update_memory(
         importance=body.importance,
         memory_type=body.memory_type,
         status=body.status,
+        starred=body.starred,
     )
     if memory is None:
         raise NotFoundError("记忆不存在")
