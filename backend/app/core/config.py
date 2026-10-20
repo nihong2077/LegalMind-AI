@@ -80,11 +80,6 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "legalmind-backend"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://jaeger:4317"  # OTLP gRPC；worker 复用同名配置
 
-    # ---- 旧端点信封回滚开关（T0.12）----
-    # False（默认）：/api/* 旧 29 端点全量穿 ApiResponse 信封；
-    # True：回滚为旧裸响应（{"detail":...} 等），用于切换事故时一键止血。
-    LEGACY_RESPONSE: bool = False
-
     # ---- Kafka（T0.8；默认关闭，开启后懒连，broker 故障降级不阻断业务）----
     ENABLE_KAFKA: bool = False
     KAFKA_BOOTSTRAP_SERVERS: str = "kafka:9092"

@@ -76,6 +76,10 @@ def build_legal_workflow(
     """
     构建法律工作流图。
 
+    .. deprecated:: T4.3
+        旧硬编码串行链路（仅 /api/agents/* 使用，已无前端引用）；新链路为 collab 主机
+        调度。保留一个版本周期后移除。
+
     模型分配策略：
     - analyze / review → heavy_llm (deepseek-v4-pro)：大型分析任务
     - research → fast_llm (deepseek-flash)：快速检索任务

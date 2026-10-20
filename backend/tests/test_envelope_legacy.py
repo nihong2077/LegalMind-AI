@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 sys.path.insert(0, ".")
 
-from app.core.config import settings
 from app.core.errors import ErrorCode
 from app.core.logging import RequestContextMiddleware
 from app.core.response import (
@@ -153,14 +152,6 @@ async def test_204_passes_through():
     resp = await _drive(LegacyEnvelopeMiddleware(no_content))
     assert resp.status_code == 204
     assert resp.content == b""
-
-
-async def test_legacy_response_flag_disables_envelope(monkeypatch):
-    monkeypatch.setattr(settings, "LEGACY_RESPONSE", True)
-    resp = await _drive(LegacyEnvelopeMiddleware(_json_app(200, {"a": 1})))
-    assert resp.json() == {"a": 1}
-    resp2 = await _drive(LegacyEnvelopeMiddleware(_json_app(404, {"detail": "x"})))
-    assert resp2.json() == {"detail": "x"}
 
 
 async def test_incoming_request_id_is_reused():

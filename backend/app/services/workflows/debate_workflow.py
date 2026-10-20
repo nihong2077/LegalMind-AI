@@ -620,6 +620,10 @@ def build_debate_workflow(
     """
     构建多轮辩论工作流（增强版）。
 
+    .. deprecated:: T4.3
+        旧硬编码庭审链路（仅 /api/debate/* 使用，已无前端引用）；新链路为模拟庭审群
+        模板（case_type=court）。保留一个版本周期后移除。
+
     模型分配：
     - KFE提取、法官开庭/调查/点评/裁决、律师陈述/反驳 → heavy_llm (V4 Pro)
     - 法律检索、白话翻译、结构化报告 → fast_llm (Flash)

@@ -165,6 +165,7 @@ class ConversationStore(Protocol):
         msg_type: str,
         round: int,
         metadata: Optional[dict],
+        created_at: Optional[datetime] = None,
     ) -> dict: ...
 
     async def insert_message_once(
@@ -435,22 +436,27 @@ class PgConversationStore:
         msg_type: str,
         round: int,
         metadata: Optional[dict],
+        created_at: Optional[datetime] = None,
     ) -> dict:
         async with app_session_factory() as session:
             conv_id = self._uuid(conversation_id)
             conv = await session.get(Conversation, conv_id)
             if conv is None:
                 raise NotFoundError("会话不存在")
-            message = Message(
-                conversation_id=conv_id,
-                sender_type=sender_type,
-                sender_id=sender_id,
-                sender_name=sender_name,
-                content=content,
-                msg_type=msg_type,
-                round=round,
-                msg_metadata=metadata or {},
-            )
+            fields: dict[str, Any] = {
+                "conversation_id": conv_id,
+                "sender_type": sender_type,
+                "sender_id": sender_id,
+                "sender_name": sender_name,
+                "content": content,
+                "msg_type": msg_type,
+                "round": round,
+                "msg_metadata": metadata or {},
+            }
+            # 迁移历史消息时保留原始时间戳；缺省走 server_default（now()）
+            if created_at is not None:
+                fields["created_at"] = created_at
+            message = Message(**fields)
             session.add(message)
             # 顺手刷新会话排序时间
             conv.updated_at = datetime.now(timezone.utc)

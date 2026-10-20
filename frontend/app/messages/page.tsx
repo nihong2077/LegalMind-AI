@@ -14,6 +14,7 @@ import ConversationList from '@/components/collab/ConversationList'
 import ChatArea from '@/components/collab/ChatArea'
 import RightRail from '@/components/collab/RightRail'
 import NewConversationWizard from '@/components/collab/NewConversationWizard'
+import LegacyMigrationBanner from '@/components/collab/LegacyMigrationBanner'
 import { useCollabStore } from '@/store/useCollabStore'
 
 export default function MessagesPage() {
@@ -27,12 +28,13 @@ export default function MessagesPage() {
   }, [fetchConversations, fetchCatalog])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="relative flex h-screen overflow-hidden">
       <IconRail />
       <ConversationList onNewConversation={() => setWizardOpen(true)} />
       <ChatArea />
       <RightRail />
       <NewConversationWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <LegacyMigrationBanner />
     </div>
   )
 }

@@ -344,12 +344,17 @@ async def list_available_models(user: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", deprecated=True)
 async def chat_stream(
     body: ChatRequest,
     request: Request,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧单聊 SSE 链路（对应旧 /chat 页已删除、无前端引用）。
+
+    新链路：`POST /api/conversations` + `/api/conversations/{id}/messages`（collab SSE v2）。
+    保留一个版本周期后移除。
+    """
     cb = RedisCircuitBreaker(name="llm_service")
     if not await cb.is_available():
         raise HTTPException(
@@ -478,11 +483,15 @@ async def chat_stream(
     )
 
 
-@router.post("/chat")
+@router.post("/chat", deprecated=True)
 async def chat_completion(
     body: ChatRequest,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧单聊非流式链路（无前端引用）；新链路见 `/api/conversations`。
+
+    保留一个版本周期后移除。
+    """
     cb = RedisCircuitBreaker(name="llm_service")
     if not await cb.is_available():
         raise HTTPException(
@@ -767,11 +776,15 @@ class AgentRequest(BaseModel):
     task_type: str = "analyze"
 
 
-@router.post("/agents/run")
+@router.post("/agents/run", deprecated=True)
 async def run_agent(
     body: AgentRequest,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧多智能体串行编排（无前端引用）。
+
+    新链路：collab 主机调度（`/api/conversations/{id}/messages`）。保留一个版本周期后移除。
+    """
     from ..services.workflows import build_legal_workflow
     from ..core.llm_client import get_llm_client
 
@@ -795,12 +808,16 @@ async def run_agent(
     return {"result": result.get("final_result", ""), "task_type": body.task_type}
 
 
-@router.post("/agents/stream")
+@router.post("/agents/stream", deprecated=True)
 async def stream_agent(
     body: AgentRequest,
     request: Request,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧多智能体流式编排（无前端引用）；新链路见 collab 主机调度。
+
+    保留一个版本周期后移除。
+    """
     from ..services.agents import LegalAnalyzer, ContractReviewer, RegulatoryResearcher
     from ..core.llm_client import get_llm_client
 
@@ -1008,11 +1025,15 @@ class DebateRequest(BaseModel):
     evidence_supplemented: bool = False
 
 
-@router.post("/debate/run")
+@router.post("/debate/run", deprecated=True)
 async def run_debate(
     body: DebateRequest,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧庭审推演（对应旧 /court 页已删除、无前端引用）。
+
+    新链路：模拟庭审群模板（`/api/conversations` + case_type=court）。保留一个版本周期后移除。
+    """
     from ..services.workflows import build_debate_workflow
     from ..core.llm_client import get_llm_client
 
@@ -1062,12 +1083,16 @@ async def run_debate(
     }
 
 
-@router.post("/debate/stream")
+@router.post("/debate/stream", deprecated=True)
 async def stream_debate(
     body: DebateRequest,
     request: Request,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧庭审推演 SSE 链路（无前端引用）；新链路见模拟庭审群模板。
+
+    保留一个版本周期后移除。
+    """
     from ..services.workflows import build_debate_workflow
     from ..core.llm_client import get_llm_client
 
@@ -1276,11 +1301,15 @@ async def stream_debate(
     return EventSourceResponse(event_generator(), ping=SSE_PING_INTERVAL, sep="\n")
 
 
-@router.post("/debate/kfe")
+@router.post("/debate/kfe", deprecated=True)
 async def extract_kfe_only(
     body: DebateRequest,
     user: dict = Depends(check_rate_limit),
 ):
+    """【已废弃 T4.3】旧庭审 KFE 提取（无前端引用）；新链路见 collab 庭审模板。
+
+    保留一个版本周期后移除。
+    """
     from ..services.legal import extract_kfe
     from ..core.llm_client import get_llm_client
 

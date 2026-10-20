@@ -180,7 +180,7 @@ function toApiError(status: number, body: unknown): ApiError {
       e.detail,
     )
   }
-  // 回滚开关（LEGACY_RESPONSE=true）下的旧形状 {"detail":...}
+  // 兜底：非信封形状 {"detail":...}（历史响应，兼容保留）
   const detail =
     body && typeof body === 'object' && 'detail' in body
       ? String((body as { detail: unknown }).detail)
@@ -279,7 +279,7 @@ export async function request<T = unknown>(
       return envelope.data
     }
 
-    // 非信封响应（如 LEGACY_RESPONSE=true 回滚期）：原样返回
+    // 非信封响应（历史响应，兼容保留）：原样返回
     return parsed as T
   }
 

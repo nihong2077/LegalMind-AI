@@ -8,8 +8,15 @@ import { useChatStore } from '@/store/useChatStore'
 
 const PUBLIC_PATHS = ['/', '/login']
 
-// 已并入消息中心的旧页面：从导航隐藏，且直接访问时重定向到 /messages
-const MERGED_PATHS = ['/chat', '/court', '/dashboard']
+// 旧路由 → 新 IA 映射（T4.1）：服务端权威重定向见 next.config.js；
+// 此处保留为客户端导航兜底（旧页面文件已物理删除）。
+const LEGACY_ROUTE_MAP: Record<string, string> = {
+  '/chat': '/messages',
+  '/court': '/messages?template=court',
+  '/dashboard': '/messages',
+  '/knowledge': '/search',
+  '/cases': '/memory?view=cases',
+}
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -29,17 +36,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (authed && pathname === '/login') {
       router.replace('/messages')
     }
-    // 旧路由（已并入消息中心）直达时重定向，避免绕过新 IA
-    if (authed && MERGED_PATHS.some((p) => pathname === p || pathname?.startsWith(p + '/'))) {
-      router.replace('/messages')
-    }
-    // /cases 已由记忆模块的「案件视图」取代（T2.4）
-    if (authed && pathname === '/cases') {
-      router.replace('/memory?view=cases')
-    }
-    // /knowledge 已收编为搜索页的「知识库浏览」次级入口（T3.2）
-    if (authed && pathname === '/knowledge') {
-      router.replace('/search')
+    // 旧路由（已并入新 IA）直达时重定向，避免绕过新导航
+    const legacyTarget = LEGACY_ROUTE_MAP[pathname ?? '']
+    if (authed && legacyTarget) {
+      router.replace(legacyTarget)
     }
     setChecking(false)
   }, [pathname, router, checkAuth])

@@ -300,13 +300,13 @@ class InMemoryStore:
         return list(reversed(page)), next_before
 
     async def insert_message(self, conversation_id, *, sender_type, sender_id, sender_name,
-                             content, msg_type, round, metadata):
+                             content, msg_type, round, metadata, created_at=None):
         c = self.convas_get(conversation_id)
         msg = {"id": str(uuid.uuid4()), "conversation_id": c["id"],
                "sender_type": sender_type, "sender_id": sender_id, "sender_name": sender_name,
                "content": content, "msg_type": msg_type, "round": round,
                "fork_parent_message_id": None, "metadata": metadata or {},
-               "created_at": self._now()}
+               "created_at": created_at.isoformat() if created_at is not None else self._now()}
         self.messages.setdefault(c["id"], []).append(msg)
         c["updated_at"] = self._now()
         return msg
@@ -805,3 +805,82 @@ async def test_forward_ownership_forbidden(client, app):
     )
     app.dependency_overrides[get_current_user] = lambda: {"sub": "u1"}
     assert resp.status_code == 403 and resp.json()["code"] == 40301
+
+
+# ============================================================
+# 旧本地会话导入（T4.2）：POST /import —— direct 历史，不触发轮次
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_import_conversation_creates_direct_history(client, fake_redis):
+    resp = await client.post(
+        "/api/conversations/import",
+        json={
+            "title": "旧会话·违约责任",
+            "messages": [
+                {"role": "user", "content": "违约金过高怎么办？", "ts": "2026-09-01T10:00:00.000Z"},
+                {"role": "assistant", "content": "可请求法院适当减少。", "ts": "2026-09-01T10:00:05.000Z"},
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    # 关键：不起轮次
+    assert "turn_id" not in data
+    assert data["imported"] == 2
+    conv = data["conversation"]
+    assert conv["type"] == "direct"
+    assert conv["target_agent_id"] == "general_assistant"
+    assert conv["title"] == "旧会话·违约责任"
+    cid = conv["id"]
+
+    # 落库可见：发送者映射正确，原始时间戳保留
+    listed = await client.get(f"/api/conversations/{cid}/messages")
+    msgs = listed.json()["data"]["messages"]
+    assert [m["sender_type"] for m in msgs] == ["user", "agent"]
+    assert msgs[0]["sender_id"] == "u1"
+    assert msgs[1]["sender_id"] == "general_assistant"
+    assert msgs[1]["sender_name"] == "法律助手"
+    assert all(m["metadata"].get("imported") is True for m in msgs)
+    assert msgs[0]["created_at"].startswith("2026-09-01T10:00:00")
+
+    # 每条均广播 SSE（进入历史后可供后续轮次 Agent 引用）
+    events = await fake_redis.xrange(rc_mod.conv_events_key(cid))
+    assert len(events) == 2
+
+
+@pytest.mark.asyncio
+async def test_import_unknown_agent_rejected(client):
+    resp = await client.post(
+        "/api/conversations/import",
+        json={"target_agent_id": "ghost", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 400 and resp.json()["code"] == 40001
+
+
+@pytest.mark.asyncio
+async def test_import_empty_messages_rejected(client):
+    resp = await client.post("/api/conversations/import", json={"messages": []})
+    assert resp.status_code == 400 and resp.json()["code"] == 40001
+
+
+@pytest.mark.asyncio
+async def test_import_too_many_messages_rejected(client):
+    messages = [{"role": "user", "content": f"m{i}"} for i in range(201)]
+    resp = await client.post("/api/conversations/import", json={"messages": messages})
+    assert resp.status_code == 400 and resp.json()["code"] == 40001
+
+
+@pytest.mark.asyncio
+async def test_import_bad_role_and_blank_content_rejected(client):
+    bad_role = await client.post(
+        "/api/conversations/import",
+        json={"messages": [{"role": "system", "content": "x"}]},
+    )
+    assert bad_role.status_code == 400 and bad_role.json()["code"] == 40001
+    blank = await client.post(
+        "/api/conversations/import",
+        json={"messages": [{"role": "user", "content": "   "}]},
+    )
+    assert blank.status_code == 400 and blank.json()["code"] == 40001
+

@@ -989,6 +989,87 @@ QPS/P95/5xx/重试/熔断/Kafka lag/worker 心跳（仅用既有指标名，标�
 **遗留**：O7 真机端到端（`ENABLE_KAFKA=true` + `--profile observability` 起、上传文档→analyze→
 轮询 completed、Grafana 看板）建议与 T4.1 联调一并进行。
 
+### 3.24 T4.1 交付记录 ✅ —— 旧路由重定向（旧书签可达）
+
+- `next.config.js` 新增服务端 `redirects()`：`/chat→/messages`、`/court→/messages?template=court`、
+  `/knowledge→/search`、`/cases→/memory?view=cases`（`permanent:false`，过渡期跳转）。
+- `components/AuthGuard.tsx` 将原先分散的旧路由分支收敛为单张 `LEGACY_ROUTE_MAP`
+  （另含 `/dashboard→/messages`），作为客户端导航兜底；`/court` 目标补上 `template=court`。
+- 物理删除旧页面文件 `app/{chat,court,knowledge,cases}/page.tsx`（合计约 2165 行）；
+  这些历史 URL 现由服务端 `redirects()` 权威接管。
+
+**验证**：本机无 Node（WSL），未跑构建；已静态核对——被删页无任何残留 import/引用、
+四目录已空、`next.config.js` 与 `AuthGuard` 映射逐条对齐。
+
+**遗留**：`/messages?template=court` 的 `template` 参数当前未被 `app/messages/page.tsx` 消费
+（仅满足「旧书签可达」）；如需直达即预选「模拟法庭」模板，可在后续卡让 messages 读取该参数并预置建群向导。
+
+### 3.25 T4.2 交付记录 ✅ —— 旧本地会话一次性迁移（direct 历史）
+
+- 后端新增 `POST /api/conversations/import`（`routers/conversations.py`）：把旧 localStorage 会话
+  导入为**服务端 direct 历史**。与 `send_message` 的关键差异——**不起新轮次**，沿用 `/{id}/forward`
+  的落库范式：逐条 `insert_message` → `push_recent_message` → `_emit_message`（SSE 广播），
+  `round=0`、`msg_type=text`、`metadata.imported=true`；使旧会话在新界面可见、可继续续聊。
+- `insert_message` 增加可选 `created_at`（Protocol + `PgConversationStore`）：迁移时**忠实保留**
+  旧消息原始时间戳；缺省仍走 `server_default=now()`，不影响既有调用方。
+- 校验（越界统一 `40001`）：`messages` 非空且 ≤200 条、单条 `content` 非空且 ≤4000 字、
+  `role ∈ {user, assistant}`、目标 Agent 须存在且启用（缺省 `general_assistant`）。
+  发送者映射：`user→sender_type=user/sender_id=uid`；`assistant→sender_type=agent/sender_id=目标 Agent`。
+- 前端 `app/lib/collab.ts` 新增 `importConversation(body)`；新组件
+  `components/collab/LegacyMigrationBanner.tsx`：读 `legalmind_sessions:{username}`（与旧
+  `useChatStore` 同键），非空且未设 `legalmind_migrated:{username}` 时，在 `app/messages/page.tsx`
+  顶部显示引导条（含会话/消息计数）+「导入」/「稍后」；导入逐会话（≤20 会话、≤200 消息）调用
+  `importConversation`，完成后置标志并 `fetchConversations()` 刷新列表。零侵入：失败仅提示、不阻塞。
+
+**验证**：新增 5 个用例（建 direct + 发送者映射 + 原始时间戳保留 + 每条形 SSE 广播 + 不起轮次；
+空/超量/非法角色/空内容/未知 Agent → 40001）；后端全量 **370 passed** 无回归。
+前端本机无 Node（WSL），未跑构建；已静态核对类型与路由。
+
+**遗留**：迁移目标固定为 `general_assistant` 单聊（旧会话未记录目标 Agent）；如需保留旧 `agent`
+归属映射，可在后续卡扩展 `target_agent_id` 的按会话推断。
+
+### 3.26 T4.3 交付记录 ✅ —— 旧端点标 deprecated + 删 LEGACY_RESPONSE 开关
+
+- **删除临时开关 LEGACY_RESPONSE**（`core/config.py` 字段与注释、`core/response.py` 的 import 与
+  `or settings.LEGACY_RESPONSE` 条件、`backend/.env.example`、`tests/test_envelope_legacy.py` 对应用例、
+  `frontend/app/lib/http.ts` 注释）。信封中间件现恒按「新路由走 `EnvelopeRouter`、旧路由经
+  `LegacyEnvelopeMiddleware` 统一穿信封」执行，不再有全局关信封的旁路。
+- **旧端点标 `deprecated=True`（保留一个版本周期，代码不删）**：[gateway.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/gateway.py)
+  的 `/chat`、`/chat/stream`、`/agents/run`、`/agents/stream`、`/debate/run`、`/debate/stream`、`/debate/kfe`
+  共 7 个旧链路端点，各加中文 deprecation docstring 指向新 collab 链路。
+- **旧 workflow 标 deprecated**：[legal_workflow.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/workflows/legal_workflow.py)
+  的 `build_legal_workflow`、[debate_workflow.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/workflows/debate_workflow.py)
+  的 `build_debate_workflow` docstring 各加 `.. deprecated:: T4.3`。
+- **范围（用户拍板）**：仅标**已无前端引用**的旧链路；仍在使用的端点（`/api/knowledge/search`、
+  `/api/knowledge/list`、`/api/dashboard/*`、`/api/contract/*` 等）**不动**。
+
+**验证**：删除 `test_legacy_response_flag_disables_envelope` 1 个用例后，后端全量 **369 passed** 无回归。
+
+### 3.27 T4.4 交付记录 ✅ —— 文档对齐当前代码事实
+
+- [docs/architecture.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/architecture.md)（原为空文件）：
+  系统总览/分层启动链/协同编排/记忆/搜索/四库四 Collection/Redis 键域/横切/14 条硬约束/技术栈。
+- [docs/api-reference.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/api-reference.md)（原为空文件）：
+  覆盖 **62 个端点**（新协同栈 28 + 旧 gateway 29 + 健康运维 5），逐一标注 7 个 T4.3 废弃端点，
+  并单列「是否触发轮次」对照表（含 `/import` 否、`/forward` 否、`send_message` 是）。
+- [docs/deployment.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/deployment.md)（原为空文件）：
+  服务清单/端口/镜像 tag/四库初始化顺序/环境变量分组/Kafka KRaft/observability profile/裸机本地开发/
+  微调模型/探针语义与降级矩阵/故障排查。
+- [CODE_WIKI.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/CODE_WIKI.md)：879 → 1141 行，逐节更新至当前
+  事实（TOC 与 `$1`–`$11` 章节一致），并把 §11「docs 文档」由 🔶 待补更新为 ✅ 已补齐。
+
+**一致性抽查（trust-but-verify）**：核对端点计数（62）、镜像 tag、端口、容器名、SQL init 文件清单、
+prometheus job 与 `deploy/observability` 目录结构均与仓库一致；修正 architecture.md 两处失真——
+§9.8 旧前端重定向目标（补正 `/knowledge→/search`、`/cases→/memory?view=cases`、`/court→?template=court`，
+并澄清旧**前端**页面文件已物理删除）与 §11 前端组件实际位置（在 `frontend/components/` 而非 `app/components/`）。
+
+**如实标注的配置不一致**：根 `docker-compose.yml` 的 `fastapi` 段仍以
+`DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}` 透传进 API 容器，与「LLM 密钥绝不进后端 API 容器」的硬约束
+存在冲突；已在 deployment.md §5.5 按配置事实标注，**留待后续卡决定是否移除该透传**。
+
+**验证**：文档为纯 Markdown 事实描述，无代码变更；抽查命令（`wc -l`、route decorator 枚举、
+`ls backend/sql/init`、`find deploy/observability`、镜像/端口 grep）均已逐项比对通过。
+
 ### P2 — 长期记忆（Codex 式）
 
 | ID | 任务 | 主要文件 | 验收 |
@@ -1011,10 +1092,10 @@ QPS/P95/5xx/重试/熔断/Kafka lag/worker 心跳（仅用既有指标名，标�
 
 | ID | 任务 | 验收 |
 |---|---|---|
-| T4.1 | 旧路由重定向：/chat→/messages、/knowledge→/search、/cases→/memory?view=cases、/court→/messages?template=court | 旧书签可达 |
-| T4.2 | localStorage→服务端一次性迁移（登录后引导，导为 direct 历史） | 本地旧会话可见于新界面 |
-| T4.3 | 旧端点/旧 workflow 标 deprecated（保留一个版本周期）；删 LEGACY_RESPONSE 临时开关 | – |
-| T4.4 | 更新 CODE_WIKI.md；补齐 docs/architecture.md、api-reference.md、deployment.md（当前为空文件） | 文档与实现一致 |
+| T4.1 ✅ | 旧路由重定向：/chat→/messages、/knowledge→/search、/cases→/memory?view=cases、/court→/messages?template=court（**已交付，见 §3.24**） | 旧书签可达 |
+| T4.2 ✅ | localStorage→服务端一次性迁移（登录后引导，导为 direct 历史）（**已交付，见 §3.25**） | 本地旧会话可见于新界面 |
+| T4.3 ✅ | 旧端点/旧 workflow 标 deprecated（保留一个版本周期）；删 LEGACY_RESPONSE 临时开关（**已交付，见 §3.26**） | – |
+| T4.4 ✅ | 更新 CODE_WIKI.md；补齐 docs/architecture.md、api-reference.md、deployment.md（当前为空文件）（**已交付，见 §3.27**） | 文档与实现一致 |
 
 ---
 

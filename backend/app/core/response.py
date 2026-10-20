@@ -23,7 +23,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .config import settings
 from .errors import BizException, ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -161,9 +160,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         rid = get_request_id()
         logger.exception("未捕获异常 path=%s request_id=%s", request.url.path, rid)
         if not _is_envelope_request(request):
-            # 复刻 T0.12 前旧 global_exception_handler 的兜底响应
-            # （LEGACY_RESPONSE=true 时等价；默认信封模式下由
-            # LegacyEnvelopeMiddleware 再包成 50000 错误信封）。
+            # 复刻 T0.12 前旧 global_exception_handler 的兜底响应，
+            # 再由 LegacyEnvelopeMiddleware 包成 50000 错误信封。
             return JSONResponse(
                 status_code=500,
                 content={"detail": "服务器内部错误", "type": type(exc).__name__},
@@ -242,8 +240,7 @@ class LegacyEnvelopeMiddleware:
     - 成功：原负载整体下沉 ``data``，HTTP 状态码不变；
     - 失败：按原 HTTP 状态码映射业务码，原 ``detail`` 转 message/detail；
     - SSE（text/event-stream）与非 JSON 响应原样透传；
-    - 已是信封（含 code+request_id）不重复包裹；
-    - ``settings.LEGACY_RESPONSE=True`` 时整体透传（一键回滚）。
+    - 已是信封（含 code+request_id）不重复包裹。
 
     request_id 复用外层 RequestContextMiddleware 绑定的同一 contextvar，
     故信封体 request_id 与 X-Request-ID 响应头必然一致。
@@ -255,7 +252,6 @@ class LegacyEnvelopeMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if (
             scope["type"] != "http"
-            or settings.LEGACY_RESPONSE
             or not scope.get("path", "").startswith("/api/")
         ):
             await self.app(scope, receive, send)

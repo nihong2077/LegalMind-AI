@@ -31,13 +31,14 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 
 | 能力模块 | 说明 | 前端入口 |
 |---------|------|---------|
-| **智能法律咨询** | 多轮对话，RAG 注入法律知识，SSE 流式输出 | `/chat` |
+| **多智能体协同群聊** | 由隐藏主机/调度智能体动态排程的多智能体协作（星型图），SSE v2 逐 token 流式、轮次状态机、checkpoint/分支、接管式扮演 | `/messages` |
 | **合同审查** | 三层四步审查框架、Playbook 合规检查、双维度风险评级（P0-P4）、Redline 修订 | `/documents` |
-| **模拟法庭** | 多智能体多轮辩论（法官/原告/被告），IRAC 裁决、判决书生成、补证中断 | `/court` |
-| **法律知识库** | 四级检索（HyDE→混合召回→重排序→法律过滤），按法官/律师/法条三域组织 | `/knowledge` |
-| **案件管理** | 案件列表与状态跟踪 | `/cases` |
+| **案情统一搜索** | 四路并行召回（法条/法官知识/用户记忆/历史消息），单路失败隔离 | `/search` |
+| **用户长期记忆** | 用户画像抽取、向量召回、星标置顶、来源会话跳转、分类筛选 | `/memory` |
 | **工作台** | 全局统计、最近案件、快速操作 | `/dashboard` |
-| **图片合同 OCR** | 第三方 PaddleOCR 服务识别图片/扫描件合同 | 整合于 `/documents` |
+| **图片合同 OCR** | 第三方 PaddleOCR 服务识别图片/扫描件合同（文档任务走 Kafka 队列） | 整合于 `/documents` |
+
+> 旧的 `/chat`、`/court`、`/knowledge`、`/cases` 页面已物理删除，统一由 [AuthGuard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/AuthGuard.tsx) 的 `LEGACY_ROUTE_MAP` 重定向到新路由（`/chat`→`/messages`、`/court`→`/messages?template=court`、`/dashboard`→`/messages`、`/knowledge`→`/search`、`/cases`→`/memory?view=cases`）。
 
 ---
 
@@ -49,19 +50,23 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 |------|---------|----------|
 | 语言 | Python | 3.10+ |
 | Web 框架 | FastAPI | ≥0.109，异步、自动 OpenAPI 文档 |
-| LLM 编排 | LangChain + LangGraph | LangChain ≥0.3，LangGraph ≥0.2（状态机工作流） |
-| LLM 网关 | LiteLLM Proxy | 统一模型路由、限流、缓存、Fallback |
-| 缓存/消息 | Redis | 7，异步客户端 `redis.asyncio` |
-| 关系数据库 | PostgreSQL + pgvector | PG 16，三库架构 + 向量列 |
-| 向量数据库 | Qdrant | v1.9.0，三套 Collection |
+| LLM 编排 | LangChain + LangGraph | LangChain ≥0.3 + LangGraph 1.x（星型协同图；节点命名用 `__` 作命名空间分隔） |
+| LLM 网关 | LiteLLM Proxy | 统一模型路由、限流、缓存、Fallback（后端不直持密钥） |
+| 缓存/消息 | Redis | 7，异步客户端 `redis.asyncio`（Stream/PubSub/锁/票据/热缓存） |
+| 消息队列 | Kafka | 官方 Apache KRaft 3.7.2（无 Zookeeper），3 topic + 各自 DLQ |
+| 关系数据库 | PostgreSQL + pgvector | PG 16，**四库架构**（judge/lawyer/law + legalmind_app） |
+| 向量数据库 | Qdrant | v1.9.0，**四套 Collection**（三知识库 + user_memories） |
 | 嵌入模型 | Qwen3-Embedding-0.6B | 1024 维，sentence-transformers |
 | 重排序模型 | Qwen3-Reranker | transformers 加载 |
 | 文档解析 | PyMuPDF、python-docx | PDF/DOCX 文本提取 |
 | 图像处理 | Pillow | 图片解码 |
 | OCR | PaddleOCR AIStudio（第三方） | PP-OCRv6 异步任务 |
 | HTTP 客户端 | httpx | 异步调用云端 API / OCR |
-| 监控 | prometheus-client | 指标暴露 `/metrics` |
-| 认证 | PyJWT | HS256，Bearer Token |
+| 韧性 | tenacity + Redis 熔断器 | 重试/超时/熔断/降级（`core/resilience.py`） |
+| 结构化日志 | structlog | JSON 日志，request-id 透传 |
+| 可观测性 | OpenTelemetry + Jaeger | 追踪常开，OTLP 上报 |
+| 监控 | prometheus-client | 指标暴露 `/metrics`（+ Prometheus/Grafana 看板） |
+| 认证 | PyJWT | HS256，Bearer Token，`sub` 承载用户名 |
 
 ### 2.2 前端
 
@@ -75,12 +80,13 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 | 动画 | Framer Motion | 12.x |
 | 3D | Three.js + React Three Fiber | 首页 Hero 场景 |
 | 图标 | Lucide React | — |
-| 流式通信 | SSE（原生 fetch + ReadableStream） | 通用解析器 |
+| 流式通信 | SSE（原生 EventSource + 自实现重连） | SSE v2 协议（message_start/message_delta/message_end） |
 
 ### 2.3 基础设施
 
-- **容器化**：Docker Compose（7 个服务）
-- **编排（规划中）**：n8n（队列模式）—— 目录已建，尚未落地
+- **容器化**：Docker Compose（11+ 个服务：redis/postgres/qdrant/litellm-db/jaeger/kafka/kafka-init/litellm/fastapi/worker-collab/worker-memory/worker-doc/frontend）
+- **可观测性 profile**：`observability` profile 额外拉起 Prometheus（:9090）与 Grafana（:3001）
+- **后台任务**：Kafka KRaft 队列 + 独立 worker 进程（取代早期 n8n 编排规划）
 - **运行环境**：Linux / WSL2 Ubuntu
 
 ---
@@ -92,48 +98,62 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     浏览器（Next.js SSR/CSR）                  │
-│   页面层 app/  │  组件层 components/  │  Zustand Store        │
+│   页面层 app/  │  组件层 components/  │  5 个 Zustand Store   │
 └───────────────────────────┬─────────────────────────────────┘
-                            │ HTTP / SSE（Bearer JWT）
+                            │ HTTP / SSE v2（Bearer JWT）
 ┌───────────────────────────▼─────────────────────────────────┐
 │                    FastAPI 应用层（backend/app）              │
-│  routers/gateway.py — 统一 API 网关（31 个端点）              │
+│  routers/ gateway（旧端点） + conversations / collab /        │
+│           agents / memory / search                            │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │              services 业务层（LangGraph）               │  │
-│  │  workflows（状态机）│ agents（技能）│ legal（检索）│ OCR │  │
+│  │  collab（星型协同图）│ memory（长期记忆）│ workflows     │  │
+│  │  （旧状态机）│ agents（技能）│ legal（检索）│ OCR        │  │
 │  └───────────────────────────────────────────────────────┘  │
-│  core 核心层：config / security / llm_client / redis_client  │
-│               pg_client / qdrant_client / embedding / reranker│
+│  core 核心层：config / security / llm_client / redis_client   │
+│    / pg_client（四库） / qdrant_client / embedding / reranker │
+│    / response / errors / resilience / logging / tracing /     │
+│    events / checkpoint / metrics / health / web_search        │
 └───┬────────────┬───────────────┬───────────────┬────────────┘
     │            │               │               │
 ┌───▼───┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────────┐
 │ Redis │ │ PostgreSQL  │ │   Qdrant    │ │ 外部云端/第三方  │
 │缓存/队列│ │ +pgvector   │ │  向量检索    │ │DeepSeek/PaddleOCR│
-└───────┘ │  三库架构    │ │ 三Collection │ └─────────────────┘
-          └─────────────┘ └─────────────┘
+│锁/票据 │ │  四库架构    │ │ 四Collection │ └─────────────────┘
+└───┬───┘ └─────────────┘ └─────────────┘
+    │ Kafka（KRaft 3.7.2）
+    ▼
+┌──────────────────────────────┐   ┌──────────────────────────┐
+│ worker-collab / -memory / -doc│   │ Jaeger(OTel) / Prometheus │
+│ （独立进程，:8001 /healthz） │   │ /Grafana（observability） │
+└──────────────────────────────┘   └──────────────────────────┘
                           ▲
-                   LiteLLM Proxy（模型网关）
+                   LiteLLM Proxy（模型网关，唯一 LLM 出海口）
                    限流 / 缓存 / Fallback
 ```
 
 ### 3.2 请求处理主线
 
-以最典型的 **流式法律咨询** 为例（[gateway.py `chat_stream`](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/gateway.py#L412)）：
+以最典型的 **多智能体协同群聊** 为例（[collab.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/collab.py) + [services/collab/runner.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/runner.py)）：
 
 ```
-前端 chatStream()
-  → POST /api/chat/stream（JWT 鉴权 + 滑动窗口限流 + 熔断器检查）
-  → 阶段1：RAG 检索
-      retrieve_legal_knowledge()：
-        HyDE 改写 → Dense+Sparse 混合召回（Qdrant + pgvector）
-        → Qwen3-Reranker 精排 → 法律规则过滤
-      结果作为独立 system 消息注入（不覆盖系统提示词）
-  → 阶段2：LLM 流式生成
-      本地微调模型不可用时自动降级 deepseek-flash（SSE status 通知前端）
-      llm_client.chat_stream() 逐 chunk 转发
-  → SSE 事件：status → message(多帧) → done / error
-  → 成功/失败分别记录熔断器状态，成功时累加 dashboard 统计
+前端（useCollabStreamStore / lib/sse.ts，原生 EventSource）
+  → POST /api/collab/conversations/{id}/events/ticket（JWT 鉴权，签发 60s 一次性票据）
+  → GET  /api/collab/conversations/{id}/events（SSE，带 ticket；支持 Last-Event-ID 回放）
+  → 用户发消息 → 会话消息落库 + 最近消息热缓存（Redis List）
+  → 开启一轮 turn：写 turn 状态 + 抢占轮次锁（Redis SET NX PX 10min）
+      Kafka 开启 → 投递 collab-turns（worker-collab 消费）；关闭 → 进程内 TurnRunner 兜底
+  → LangGraph 星型协同图执行（host 隐藏主持人 + scheduler 隐藏调度智能体）：
+      prepare（记忆召回 / 工具并行预取）→ 逐辐条 agent / tool 发声 → conclude（判决书/纪要）
+  每轮 turn：
+      调度智能体按上下文动态排序候选发言者（无硬编码业务顺序）
+      每个 agent 收尾后 host 决策 → 下一发言者；tool 辐条（法规/类案检索）产出引用卡
+      发言前写入「下面是——发言」分隔条（隐藏 host/scheduler 身份）
+  → SSE v2 事件：message_start → message_delta(逐 token)* → message_end → turn 生命周期事件
+  → host 决策落库 host_decisions；轮次状态机 + LangGraph Postgres Checkpointer 支持中断/恢复/分支
 ```
+
+> 旧的直连对话端点（`/api/chat`、`/api/chat/stream`、`/api/agents/run`、`/api/agents/stream`、`/api/debate/*`）已在 gateway 中标记 `deprecated=True`，仅作兼容保留；`LEGACY_RESPONSE` 开关已删除。
 
 ### 3.3 LLM 调用路由
 
@@ -146,6 +166,8 @@ LegalMind AI 是一个面向中文法律场景的智能协作平台，通过 **D
 | 其他（直连） | `https://api.deepseek.com/v1` | 映射表（均→`deepseek-chat`） |
 
 模型映射表 `DEEPSEEK_MODELS`：`deepseek-v4-pro`、`deepseek-flash` 均映射到云端 `deepseek-chat`。
+
+所有出站 LLM 调用统一经 `core/resilience.py` 包装（按服务名 `litellm`/`llm_deepseek`/`local_model`/`ocr`/`qdrant` 走 per-service Redis 熔断器，fail-open），流式重试仅在首字节到达前允许，避免重复生成与重复计费。生产环境后端**不直持 LLM 密钥**，一律经内部 LiteLLM 透传。
 
 ---
 
@@ -160,43 +182,70 @@ LegalMind AI/
 │   │   │   ├── config.py           # 全局配置（Pydantic Settings，读 .env）
 │   │   │   ├── security.py         # JWT 签发/校验、当前用户依赖
 │   │   │   ├── user_service.py     # 用户注册/认证（Redis + PBKDF2）
-│   │   │   ├── redis_client.py     # Redis 连接、任务队列（List+Hash+Stream）
-│   │   │   ├── pg_client.py        # PostgreSQL 三库引擎 + ORM 模型
+│   │   │   ├── response.py         # 统一响应信封 + EnvelopeRouter + 异常处理器
+│   │   │   ├── errors.py           # ErrorCode 枚举 + BizException
+│   │   │   ├── resilience.py       # 重试/超时/熔断/降级（RedisCircuitBreaker）
+│   │   │   ├── logging.py          # structlog + request-id 中间件
+│   │   │   ├── tracing.py          # OpenTelemetry 初始化与 ASGI 插桩
+│   │   │   ├── events.py           # Kafka EventBus（懒连 + 失败降级）
+│   │   │   ├── checkpoint.py       # LangGraph AsyncPostgresSaver
+│   │   │   ├── metrics.py          # Prometheus 指标 + ASGI 中间件
+│   │   │   ├── health.py           # /healthz、/readyz 就绪聚合
+│   │   │   ├── redis_client.py     # Redis 连接、任务队列、协同键/锁/票据
+│   │   │   ├── pg_client.py        # PostgreSQL 四库引擎 + ORM（知识库 + 应用）
 │   │   │   ├── qdrant_client.py    # Qdrant 客户端 + Collection
 │   │   │   ├── embedding.py        # Qwen3-Embedding 嵌入服务
 │   │   │   ├── reranker.py         # Qwen3-Reranker 重排序
+│   │   │   ├── web_search.py       # 联网检索（透传优先 + 直连回退）
 │   │   │   └── llm_client.py       # LLM 统一客户端（三路由）
 │   │   ├── routers/
-│   │   │   └── gateway.py          # 统一 API 网关（31 个端点）
+│   │   │   ├── gateway.py          # 旧端点集合（含 deprecated 兼容端点）
+│   │   │   ├── conversations.py    # 会话/消息/成员/接管/转发/纪要/checkpoint/fork
+│   │   │   ├── collab.py           # 协同 SSE（票据 + 事件流）
+│   │   │   ├── agents.py           # 模板与 Agent 目录（只读）
+│   │   │   ├── memory.py           # 用户长期记忆 CRUD + 开关
+│   │   │   └── search.py           # 案情统一搜索
+│   │   ├── worker/                 # Kafka 后台 worker
+│   │   │   ├── main.py             # --role collab|memory|doc，心跳/健康/指标
+│   │   │   └── consumers/
+│   │   │       ├── collab.py       # 轮次消费 + 孤儿扫描
+│   │   │       ├── memory.py       # 记忆事件消费
+│   │   │       └── doc.py          # 文档任务消费
 │   │   └── services/               # 业务层
-│   │       ├── workflows/          # LangGraph 工作流（状态机）
+│   │       ├── collab/             # LangGraph 星型协同图（host/scheduler/辐条/模板）
+│   │       ├── memory/             # 长期记忆抽取/管线/存储
+│   │       ├── workflows/          # 旧 LangGraph 状态机（合同/辩论/咨询）
 │   │       ├── agents/             # 智能体技能封装
 │   │       ├── legal/              # 法律检索核心链路
 │   │       └── ocr_service.py      # PaddleOCR 服务封装
 │   ├── scripts/                    # 数据导入/清洗脚本
-│   ├── sql/init/                   # 数据库初始化 SQL（三库 schema）
+│   ├── sql/init/                   # 数据库初始化 SQL（建库 + 四库 schema + 种子）
 │   ├── tests/                      # 测试
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── .env
 ├── frontend/                       # Next.js 前端
 │   ├── app/                        # App Router 页面
-│   │   ├── lib/api.ts              # API 封装 + SSE 解析
-│   │   ├── layout.tsx / page.tsx
-│   │   └── */page.tsx              # 各业务页面
-│   ├── components/                 # React 组件
-│   ├── store/useChatStore.ts       # Zustand 全局状态
+│   │   ├── lib/                    # http.ts / api.ts / collab.ts / sse.ts / memory.ts / search.ts
+│   │   ├── layout.tsx / page.tsx   # 布局（AuthGuard 包裹）/ 首页
+│   │   └── login/ messages/ memory/ search/ documents/ dashboard/
+│   ├── components/
+│   │   ├── collab/                 # Avatar/ChatArea/ConversationList/IconRail/MessageBubble/RightRail/...
+│   │   ├── memory/                 # CasesPane/MemoryDetail/MemoryEditor/MemoryList
+│   │   ├── search/                 # SearchBar/SearchResults/ForwardDialog/NewGroupFromQuoteDialog/...
+│   │   └── （旧组件：ChatInterface/DocumentUpload/JudgeVerdictCard/Hero3DScene 等）
+│   ├── store/                      # useChatStore / useCollabStore / useCollabStreamStore / useMemoryStore / useSearchStore
 │   ├── Dockerfile
 │   ├── package.json
 │   └── tailwind/next/postcss 配置
 ├── litellm/config.yaml             # LiteLLM Proxy 模型配置
-├── orchestration/n8n/              # n8n 编排（目录为空，规划中）
+├── orchestration/n8n/              # 早期 n8n 编排目录（已被 Kafka + worker 取代，保留）
 ├── deploy/                         # 简化部署配置
 │   ├── docker-compose.yml
 │   └── env.example
-├── docs/                           # 文档（现有占位空文件）
+├── docs/                           # 文档（含 collab-implementation_plan.md）
 ├── scripts/setup_local_model.sh    # 本地模型初始化脚本
-├── docker-compose.yml              # 完整编排（7 服务）
+├── docker-compose.yml              # 完整编排（11+ 服务）
 └── .env / .env.example             # 环境变量（.env 不入 git）
 ```
 
@@ -214,24 +263,31 @@ FastAPI 的 `asynccontextmanager`，按优先级初始化各组件：
 |------|------|---------|
 | 1 | Redis（5 次重试，指数退避） | **致命**，启动失败 |
 | 2 | 默认管理员账号（`admin/admin`） | 仅告警 |
-| 3 | PostgreSQL 三库（5 次重试） | **致命** |
-| 4 | Qdrant | 可降级（向量检索不可用） |
-| 5 | LLM 客户端 | 可降级 |
-| 6 | 内存监控后台任务 | — |
+| 3 | PostgreSQL **四库**（5 次重试） | **致命** |
+| 4 | LangGraph Checkpointer（AsyncPostgresSaver） | 可降级（无检查点能力） |
+| 5 | Qdrant | 可降级（向量检索不可用） |
+| 6 | LLM 客户端 | 可降级 |
+| 7 | 内存监控后台任务 | — |
 
-关闭时逆序释放：LLM → Qdrant → PG → Redis。
+Kafka EventBus 在启动时初始化，但采用**懒连接**：连接失败或发送异常均不阻断主流程（`ENABLE_KAFKA` 默认关，关时协作/记忆/文档任务回退进程内执行）。
+
+关闭时逆序释放：event_bus → checkpointer → llm → qdrant → pg → redis。
 
 #### 横切能力
 
 | 能力 | 实现 | 说明 |
 |------|------|------|
 | CORS | `CORSMiddleware` | 来源由 `CORS_ORIGINS` 逗号分隔配置 |
-| 指标采集中间件 | `prometheus_middleware` | 统计 `http_requests_total`、`http_request_duration_seconds` |
-| 全局异常处理 | `global_exception_handler` | 按异常类型映射 HTTP 状态码（见下表） |
-| 健康检查 | `GET /health` | 聚合 Redis/LLM/PG/Qdrant/内存状态 |
+| 请求上下文 | `RequestContextMiddleware`（[logging.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/logging.py)） | 最外层，注入 request-id 并绑定 structlog |
+| 指标采集中间件 | `PrometheusASGIMiddleware`（[metrics.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/metrics.py)） | 低基数路由模板标签统计 `http_requests_total`、时延 |
+| 旧响应兼容 | `LegacyEnvelopeMiddleware`（[response.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/response.py)） | 将新信封统一映射回旧前端约定 |
+| 全局异常处理 | `register_exception_handlers`（[response.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/response.py)） | `BizException`→错误码信封；其他异常映射 HTTP 状态 |
+| 追踪插桩 | `instrument_app`（[tracing.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/tracing.py)） | OpenTelemetry 常开，OTLP 上报 Jaeger |
+| 健康检查 | `GET /health` | 聚合 Redis/LLM/PG 四库/Qdrant/内存状态 |
+| 存活/就绪探针 | `GET /healthz`、`GET /readyz` | `/healthz` 永不查依赖（恒 200）；`/readyz` 并行依赖检查，未就绪返回 503 |
 | 指标暴露 | `GET /metrics` | Prometheus 文本格式 |
 
-异常 → HTTP 状态映射（`EXCEPTION_STATUS_MAP`）：
+异常 → HTTP 状态映射（[response.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/response.py) 的 `_STATUS_TO_ERROR` / `register_exception_handlers`）：
 
 | 异常 | 状态码 |
 |------|-------|
@@ -258,14 +314,24 @@ FastAPI 的 `asynccontextmanager`，按优先级初始化各组件：
 
 | 分组 | 关键配置项 |
 |------|-----------|
-| 数据库 | `REDIS_URL`、`PG_JUDGE_URL`、`PG_LAWYER_URL`、`PG_LAW_URL`、`QDRANT_URL`/`QDRANT_PATH` |
-| 嵌入/重排 | `EMBEDDING_MODEL`(1024维)、`EMBEDDING_DEVICE`、`RERANKER_MODEL`、`RERANKER_TOP_N`、检索阈值 |
-| 认证 | `JWT_SECRET_KEY`、`JWT_ALGORITHM` |
-| 限流/熔断 | `RATE_LIMIT_MAX_REQUESTS`、`CIRCUIT_BREAKER_*` |
+| 数据库 | `REDIS_URL`(max 50 conns)、`PG_JUDGE_URL`、`PG_LAWYER_URL`、`PG_LAW_URL`、**`PG_APP_URL`**、`QDRANT_URL`/`QDRANT_PATH`、`CHECKPOINT_POOL_MAX_SIZE` |
+| 嵌入/重排 | `EMBEDDING_MODEL`(1024维)、`EMBEDDING_DEVICE`、`RERANKER_MODEL`、`RERANKER_TOP_N`、`HYBRID_RECALL_TOP_K`、`FINAL_TOP_K` |
+| 认证 | `JWT_SECRET_KEY`、`JWT_ALGORITHM`、`ADMIN_USERNAME`/`ADMIN_PASSWORD` |
+| 限流/熔断 | `RATE_LIMIT_*`、`CIRCUIT_BREAKER_*` |
+| LLM 韧性 | `LLM_RETRY_*`、`LLM_CALL_TIMEOUT`、`LLM_STREAM_CONNECT_TIMEOUT` |
 | API Key | `OPENAI_API_KEY`、`DEEPSEEK_API_KEY` |
 | LiteLLM | `LITELLM_PROXY_URL`、`LITELLM_VIRTUAL_KEY` |
 | 本地模型 | `LOCAL_LLM_API_BASE`、`LOCAL_LLM_MODEL`、`LOCAL_LLM_API_KEY` |
+| Kafka | `ENABLE_KAFKA`(默认 False)、`KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC_TURNS`/`MEMORY`/`DOC_TASKS`（各带 `_DLQ`）、`KAFKA_CONNECT_TIMEOUT`、`KAFKA_CLIENT_ID` |
+| Worker | `WORKER_HEARTBEAT_INTERVAL/TTL`、`WORKER_HEALTH_PORT`、`WORKER_KEY_PREFIX`、`WORKER_INDEX_KEY` |
+| 轮次 | `TURN_LEASE_SECONDS`、`TURN_HEARTBEAT_INTERVAL`、`TURN_MAX_ATTEMPTS`、`TURN_HISTORY_LIMIT`、`TURN_ORPHAN_SCAN_INTERVAL` |
+| 记忆 | `MEMORY_EXTRACT_MODEL`、`MEMORY_MERGE_THRESHOLD`、`MEMORY_DEDUP_THRESHOLD`、`MEMORY_MAX_ATTEMPTS`、`MEMORY_RECALL_TOP_K`、`MEMORY_RECALL_MIN_SCORE` |
+| 文档任务 | `DOC_MAX_ATTEMPTS`、`DOC_RETRY_BACKOFF` |
+| 联网检索 | `WEB_SEARCH_ENABLED`、`WEB_SEARCH_COUNT`、`WEB_SEARCH_TIMEOUT`、`WEB_SEARCH_MAX_ATTEMPTS` |
+| 可观测性 | `LOG_LEVEL`/`LOG_FORMAT`、`OTEL_ENABLED`、`OTEL_SERVICE_NAME`、`OTEL_EXPORTER_OTLP_ENDPOINT` |
 | OCR | `OCR_API_URL`、`OCR_API_TOKEN`、`OCR_MODEL`、`OCR_POLL_INTERVAL`、`OCR_POLL_TIMEOUT` |
+
+> 注：`API_PREFIX="/api/v1"` 为历史遗留字段，**实际路由前缀为 `/api`**（未使用该字段）。
 
 #### 5.2.2 安全认证：[security.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/security.py)
 
@@ -292,7 +358,7 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 
 #### 5.2.4 Redis 客户端：[redis_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/redis_client.py)
 
-全局单例 `redis_client`（`decode_responses=True`，最大连接 20）。
+全局单例 `redis_client`（`decode_responses=True`，最大连接 50）。承载三种职责：**任务队列原语**、**协同会话热数据/锁/SSE 票据**、**熔断器/记忆开关/worker 心跳**。
 
 **异步任务队列**（List + Hash + Stream 组合）：
 
@@ -312,6 +378,25 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 | `get_stream_events` | `XREAD` 订阅进度 |
 | `redis_health_check` | Ping + 延迟 + 内存 |
 
+**协同会话键**（多智能体群聊）：
+
+| Key 模式 | 类型 | 用途 |
+|----------|------|------|
+| `legalmind:conv:{id}:messages:recent` | List | 会话最近消息热缓存（`LTRIM` 20 条，TTL 600s） |
+| `legalmind:conv:{id}:events` | Stream + PubSub | 协作事件流（`MAXLEN` 500，支持 `Last-Event-ID` 回放） |
+| `legalmind:lock:conv:{id}` | String | 轮次锁（`SET NX PX 10min`） |
+| `legalmind:sse_ticket:{ticket}` | String | SSE 一次性票据（TTL 60s） |
+
+| 函数 | 职责 |
+|------|------|
+| `conv_recent_key` / `conv_events_key` / `conv_lock_key` / `sse_ticket_key` | 键名构造 |
+| `issue_sse_ticket` / `consume_sse_ticket` | 签发 / 核销一次性 SSE 票据 |
+| `acquire_turn_lock` / `release_turn_lock` / `get_turn_lock_holder` / `refresh_turn_lock` | 轮次锁抢占/释放/续期 |
+| `append_conv_event` / `read_conv_events_since` | 追加事件 / 按 ID 回放 |
+| `get_recent_messages` / `push_recent_message` / `set_recent_messages` / `invalidate_recent_messages` | 热缓存读写/失效 |
+
+> 其他键：熔断器 `legalmind:cb:{name}`（见 [5.2.9](#529-新增核心模块)）、记忆开关 `legalmind:memory:enabled:{user_id}`、worker 心跳 `legalmind:worker:*` + 在线 ZSET `legalmind:workers:online`。
+
 #### 5.2.5 LLM 客户端：[llm_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/llm_client.py)
 
 `LLMClient` 类，三套 httpx 客户端单例（Proxy / 直连 / 本地）。
@@ -330,15 +415,18 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 
 #### 5.2.6 PostgreSQL 客户端：[pg_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/pg_client.py)
 
-**三库独立引擎**（连接池 pool_size=5，max_overflow=10）：
+**四库独立引擎**（知识库三库连接池 pool_size=5/max_overflow=10；应用库 app_engine pool_size=10/max_overflow=20）：
 
 | 引擎 | 库 | 内容 |
 |------|-----|------|
 | `judge_engine` | judge_db | 裁判文书、量刑标准、审判流程 |
 | `lawyer_engine` | lawyer_db | 辩护策略、证据规则、合同模板、法律意见 |
 | `law_engine` | law_db | 法律法规、司法解释、行政规章 |
+| `app_engine` | **legalmind_app** | 会话/消息/成员/Agent 注册表/记忆/轮次/主持决策 |
 
-**ORM 模型（11 个，均带可选 1024 维向量列）**：
+> 应用库使用**独立 SQLAlchemy metadata（`AppBase`）**，与知识库 metadata（`Base`）分离，避免跨库表污染（pgvector 列问题）。
+
+**知识库 ORM 模型（10 个，均带可选 1024 维向量列，`Base`）**：
 
 | 库 | 模型类 | 表 |
 |----|-------|-----|
@@ -353,17 +441,19 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 | law | `JudicialInterpretation` | judicial_interpretations（司法解释） |
 | law | `AdministrativeRegulation` | administrative_regulations（行政规章） |
 
+**应用 ORM 模型（8 个，`AppBase`）**：`Conversation`、`ConversationMember`、`Message`（`sender_type` 支持 user/agent/tool 等）、`AgentRegistry`、`CaseRosterTemplate`、`Memory`（含 `starred`）、`CollabTurn`、`HostDecision`。
+
 | 函数 | 职责 |
 |------|------|
-| `init_pg` / `close_pg` | 三库建表 / 释放连接池 |
-| `search_*_by_vector`（7 个） | 各表向量检索（cosine_distance），返回含相似度 score |
+| `init_pg` / `close_pg` | 四库建表 / 释放连接池 |
+| `search_*_by_vector`（7 个） | 各知识表向量检索（cosine_distance），返回含相似度 score |
 | `search_law_by_keyword` | 法条 ILIKE 全文检索 |
 
 #### 5.2.7 Qdrant 客户端：[qdrant_client.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/qdrant_client.py)
 
-三套 Collection（1024 维，Cosine）：`judge_knowledge`、`lawyer_knowledge`、`law_knowledge`。
+**四套 Collection**（1024 维，Cosine）：知识库三套 `judge_knowledge`、`lawyer_knowledge`、`law_knowledge`（`COLLECTIONS` 字典按域路由），以及用户记忆 `user_memories`（`COLLECTION_USER_MEMORIES`）。
 
-客户端支持 **本地文件模式**（`QDRANT_PATH`）与 **远程 URL 模式**（`QDRANT_URL`）自动切换。
+客户端支持 **本地文件模式**（`QDRANT_PATH`）与 **远程 URL 模式**（`QDRANT_URL`）自动切换；Collection 存在性检查使用 `await client.collection_exists(name)` 以规避本地模式异常。
 
 | 函数 | 职责 |
 |------|------|
@@ -379,97 +469,113 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 |------|---------|------|
 | [embedding.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/embedding.py) | `embed_text` / `embed_texts` / `compute_similarity` | Qwen3-Embedding（离线优先加载，归一化向量，线程池异步） |
 | [reranker.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/reranker.py) | `rerank_documents` | Qwen3-Reranker 精排（query-doc 对打分，失败回退原序） |
+| [web_search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/web_search.py) | `search_web` / `fetch_url` | 联网检索（DeepSeek 官方 API 经 LiteLLM 透传优先，失败回退直连；408/429/5xx 退避重试，4xx 不重试直接抛 `WebSearchError`） |
+
+#### 5.2.9 新增核心模块
+
+P0~P4 协同重构引入的 Harness 横切模块：
+
+| 文件 | 核心导出 | 职责 |
+|------|---------|------|
+| [response.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/response.py) | `success` / `error` / `ApiResponse`、`EnvelopeRouter`、`register_exception_handlers`、`LegacyEnvelopeMiddleware`、`sse_error_event` | 统一响应信封 `{success,data|error}`、路由工厂、异常处理与前端的旧响应兼容 |
+| [errors.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/errors.py) | `ErrorCode` 枚举、`BizException` 及快捷异常类 | 业务错误码（SUCCESS=0、INVALID_PARAMS=40001、NOT_FOUND=40004、UNAUTHORIZED=40101、RATE_LIMITED=42901、TURN_LOCK_CONFLICT=50901、INTERNAL_ERROR=50000、LLM_CALL_FAILED=50201、CIRCUIT_OPEN=50301、KAFKA_DEGRADED=50310、UPSTREAM_TIMEOUT=50401 等） |
+| [resilience.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/resilience.py) | `RedisCircuitBreaker`、`with_resilience`、`open_resilient_stream`、`CircuitState` | per-service Redis 熔断器（前缀 `legalmind:cb:`，fail-open）、重试/超时/降级 |
+| [logging.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/logging.py) | `setup_logging`、`RequestContextMiddleware` | structlog JSON 日志 + request-id 透传 |
+| [tracing.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/tracing.py) | `setup_tracing`、`instrument_app` | OpenTelemetry 常开初始化与 ASGI 插桩 |
+| [events.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/events.py) | `EventBus`、`make_consumer`、`event_bus` | Kafka 事件总线（懒连、失败降级不抛异常，`publish` 返回 bool） |
+| [checkpoint.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/checkpoint.py) | `init_checkpointer` / `close_checkpointer` / `get_checkpointer` | LangGraph `AsyncPostgresSaver`（连 legalmind_app，建 checkpoints/checkpoint_blobs/checkpoint_writes 表） |
+| [metrics.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/metrics.py) | `PrometheusASGIMiddleware`、各类 `*_TOTAL` 指标、`record_kafka_lag` | HTTP/LLM/Kafka/Worker/协同/记忆/文档/联网检索指标（低基数标签） |
+| [health.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/health.py) | `readiness_report`、`check_redis/check_postgres/check_qdrant/check_kafka` | 就绪聚合，单组件失败隔离 |
 
 ---
 
-### 5.3 路由层：[gateway.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/gateway.py)
+### 5.3 路由层
 
-统一 API 网关，前缀 `/api`，共 **31 个端点**。
+统一前缀 `/api`，由 **6 个 router** 组成：`gateway`（旧端点集合）+ `conversations` / `collab` / `agents` / `memory` / `search`（协同重构新增）。各新 router 均使用 `EnvelopeRouter` 工厂（统一响应信封），`gateway` 仍为普通 `APIRouter`。
 
-#### 5.3.1 可靠性机制（gateway 内定义）
+| Router | 前缀 | 职责 |
+|--------|------|------|
+| [gateway.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/gateway.py) | `/api` | 旧端点兼容集合（含 deprecated 端点） |
+| [conversations.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/conversations.py) | `/api/conversations` | 会话/消息/成员/接管/转发/纪要/checkpoint/fork |
+| [collab.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/collab.py) | `/api/collab/conversations` | 协同 SSE（票据 + 事件流） |
+| [agents.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/agents.py) | `/api/agents` | 模板卡与 Agent 目录（只读） |
+| [memory.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/memory.py) | `/api/memories` | 用户长期记忆 CRUD + 开关 |
+| [search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/search.py) | `/api/search` | 案情统一搜索 |
+
+#### 5.3.1 可靠性机制
 
 | 机制 | 类/函数 | 说明 |
 |------|--------|------|
-| 滑动窗口限流 | `SlidingWindowRateLimiter` | 默认 30 次/60s，按 `IP:用户:路由` 维度 |
-| 熔断器 | `RedisCircuitBreaker` | 状态 CLOSED/OPEN/HALF_OPEN，存 Redis；失败 5 次开路，30s 后半开探测 |
-| 熔断装饰器 | `circuit_protect` | 声明式保护，支持 fallback |
+| 滑动窗口限流 | `SlidingWindowRateLimiter`（gateway 内定义） | 默认 30 次/60s，按 `IP:用户:路由` 维度 |
+| 熔断器 | `RedisCircuitBreaker`（已收口至 [core/resilience.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/core/resilience.py)） | 状态 CLOSED/OPEN/HALF_OPEN，存 Redis；失败阈值开路、超时后半开探测 |
+| 熔断装饰器 | `circuit_protect`（gateway 保留兼容） | 声明式保护，支持 fallback |
 | 组合依赖 | `check_rate_limit` | 鉴权 + 限流，业务端点统一使用 |
 
 #### 5.3.2 端点全景
 
-**认证与系统**
+**协同会话**（[conversations.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/conversations.py)）
 
 | 方法 | 路径 | 职责 |
 |------|------|------|
-| POST | `/auth/register` | 注册 |
-| POST | `/auth/token` | 登录获取 JWT |
+| GET | `/conversations` | 会话列表 |
+| POST | `/conversations` | 建会话（type/template_id/my_role/target_agent_id/agent_ids/title） |
+| POST | `/conversations/import` | 旧本地会话迁移（保留原始时间戳，不触发新轮次） |
+| GET/PATCH/DELETE | `/conversations/{id}` | 会话详情/更新/删除 |
+| POST/DELETE | `/conversations/{id}/members` | 成员增删 |
+| POST | `/conversations/{id}/my_role` | 用户角色接管（空值交还 AI，跨轮持久化） |
+| GET/POST | `/conversations/{id}/messages` | 消息读取/发送 |
+| POST | `/conversations/{id}/forward` | 转发卡片消息到已有会话 |
+| POST | `/conversations/{id}/minutes` | 生成会商纪要 |
+| GET | `/conversations/{id}/turns/{turn_id}/checkpoints` | 轮次检查点 |
+| POST | `/conversations/{id}/turns/{turn_id}/fork` | 轮次分支（回到此轮） |
+
+> 轮次锁冲突返回 **50901**；`ENABLE_KAFKA` 决定协作走 `MODE_KAFKA`（投递 `collab-turns`）或 `MODE_INPROCESS`。
+
+**协同 SSE**（[collab.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/collab.py)）
+
+| 方法 | 路径 | 职责 |
+|------|------|------|
+| POST | `/collab/conversations/{id}/events/ticket` | 签发 60s 一次性 SSE 票据 |
+| GET | `/collab/conversations/{id}/events` | SSE 事件流（`EventSourceResponse`，`Last-Event-ID` 回放） |
+
+**智能体与模板**（[agents.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/agents.py)，只读）
+
+| 方法 | 路径 | 职责 |
+|------|------|------|
+| GET | `/agents/templates` | 模板卡列表（8 个） |
+| GET | `/agents` | Agent 列表（支持 `is_tool`/`q` 过滤） |
+| GET | `/agents/{agent_id}` | Agent 详情 |
+
+**用户记忆**（[memory.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/memory.py)）
+
+| 方法 | 路径 | 职责 |
+|------|------|------|
+| GET/PUT | `/memories/setting` | 记忆功能开关 |
+| GET | `/memories` | 列表（分类/星标/搜索/分页） |
+| POST | `/memories` | 新增 |
+| GET/PATCH/DELETE | `/memories/{memory_id}` | 详情/更新/删除（含归档） |
+
+**统一搜索**（[search.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/search.py)）
+
+| 方法 | 路径 | 职责 |
+|------|------|------|
+| POST | `/search/unified` | 四路并行召回（法条/法官知识/用户记忆/历史消息），单路失败隔离 fail-open（单路超时 20s） |
+
+**gateway 旧端点**（保留兼容）
+
+| 方法 | 路径 | 职责 |
+|------|------|------|
+| POST | `/auth/register`、`/auth/token` | 注册 / 登录获取 JWT |
 | GET | `/models` | 可用模型列表（含可用性探测） |
-
-**任务与熔断**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/tasks` | 创建异步任务 |
-| GET | `/tasks/{id}` | 查询任务状态 |
-| GET | `/stream/{id}` | SSE 订阅任务进度 |
-| GET | `/circuit-breaker/{name}` | 熔断器状态 |
-| POST | `/circuit-breaker/{name}/reset` | 重置熔断器 |
-
-**对话**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/chat/stream` | 流式对话（RAG + 模型降级） |
-| POST | `/chat` | 同步对话 |
-
-**工作台**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| GET | `/dashboard/stats` | 全局统计 |
-| POST | `/dashboard/stats/increment` | 增量计数 |
-| GET | `/dashboard/cases` | 最近案件 |
-| POST | `/dashboard/cases` | 创建案件 |
-
-**文档**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/documents/upload` | 上传（支持 PDF/Word/TXT/图片） |
-| GET | `/documents` | 文档列表 |
-| GET | `/documents/{id}` | 文档元信息 |
-| GET | `/documents/{id}/content` | 提取内容（图片/扫描件自动 OCR） |
-| POST | `/documents/{id}/analyze` | 异步入队分析 |
-
-**智能体**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/agents/run` | 运行智能体（分析/审查/检索） |
-| POST | `/agents/stream` | 流式运行智能体 |
-
-**知识库**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/knowledge/search` | 四级语义检索 |
-| GET | `/knowledge/list` | 分页列表（按 domain 查 PG） |
-
-**模拟法庭辩论**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/debate/run` | 运行完整辩论 |
-| POST | `/debate/stream` | 流式辩论（含补证中断） |
-| POST | `/debate/kfe` | 仅提取关键法律事实 |
-
-**合同**
-
-| 方法 | 路径 | 职责 |
-|------|------|------|
-| POST | `/contract/review` | 同步合同审查 |
-| POST | `/contract/review/stream` | 流式合同审查 |
-| POST | `/contract/draft-clause` | 起草合同条款 |
+| POST/GET | `/tasks`、`/tasks/{id}`、`/stream/{id}` | 异步任务创建/查询/SSE 订阅 |
+| GET/POST | `/circuit-breaker/{name}`、`/circuit-breaker/{name}/reset` | 熔断器状态/重置 |
+| POST | `/chat`、`/chat/stream` | 对话（**deprecated**） |
+| GET/POST | `/dashboard/stats`、`/dashboard/stats/increment`、`/dashboard/cases` | 工作台 |
+| POST/GET | `/documents/upload`、`/documents`、`/documents/{id}`、`/documents/{id}/content`、`/documents/{id}/analyze` | 文档上传/列表/内容（图片自动 OCR）/入队分析 |
+| POST | `/agents/run`、`/agents/stream` | 运行智能体（**deprecated**） |
+| POST/GET | `/knowledge/search`、`/knowledge/list` | 四级语义检索 / 分页列表 |
+| POST | `/debate/run`、`/debate/stream`、`/debate/kfe` | 模拟法庭辩论（**deprecated**） |
+| POST | `/contract/review`、`/contract/review/stream`、`/contract/draft-clause` | 合同审查（**未废弃**，前端 `/documents` 仍使用） |
 
 #### 5.3.3 请求模型（Pydantic）
 
@@ -480,6 +586,8 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 | `DebateRequest` | `case_description`、`evidence_summary`、`task_type`、`evidence_supplemented` |
 | `ContractReviewRequest` | `contract_text`、`user_position`（默认乙方）、`review_stance`（默认常规） |
 | `KnowledgeSearchRequest` / `KnowledgeListRequest` | 查询/域/分页参数 |
+| `CreateConversationRequest` | `type`、`template_id`、`my_role`、`target_agent_id`、`agent_ids`、`title` |
+| `UnifiedSearchRequest` | `query`、`sources`（四路子集过滤） |
 
 #### 5.3.4 合同审查流式 SSE 事件协议
 
@@ -497,7 +605,46 @@ JWT 的 `sub` 字段承载用户名（前端识别用户的依据）。
 
 ### 5.4 services 业务层
 
-#### 5.4.1 workflows 工作流（LangGraph 状态机）
+协同重构后业务层新增 `collab/`（多智能体协同编排）与 `memory/`（用户长期记忆）两个子包；`workflows/`、`agents/`、`legal/`、`ocr_service.py` 为旧链路，保持业务红线不变。
+
+#### 5.4.1 collab 协同编排（LangGraph 星型图）
+
+核心是**星型协同图**：隐藏主机（host）为中枢，各 Agent/工具为辐条；**无任何硬编码业务顺序边**，发言者由调度智能体动态排序。
+
+| 文件 | 核心类/函数 | 职责 |
+|------|------------|------|
+| [state.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/state.py) | `CollabState` | 图状态（会话/成员/候选/轮次/记忆等） |
+| [graph.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/graph.py) | `build_collab_graph` | 构建编译星型图（host/scheduler 零固定出边，可注入件） |
+| [host_skill.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/host_skill.py) | `HostSkill.speak_and_decide` | 隐藏主持人：发言 + 决策下一发言者 |
+| [scheduler_skill.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/scheduler_skill.py) | `SchedulerSkill.decide` | 隐藏调度智能体（D14）：按上下文排序候选 |
+| [prompts.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/prompts.py) | `is_court_template` | 模板判据（业务分派只依据 adapter，无硬编码顺序） |
+| [registry.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/registry.py) | `RegistryService` / `get_registry` | agent_registry + case_roster_templates（进程级缓存） |
+| [runner.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/runner.py) | `TurnRunner` | 轮次执行/恢复引擎（`get_turn_runner()`/`reset_turn_runner()` 进程内单例） |
+| [agent_nodes.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/agent_nodes.py) | `make_agent_runner` / `AgentNodeRunner` | Agent 辐条：零侵入 Skill 适配 + S1 流式 |
+| [tool_nodes.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/tool_nodes.py) | `make_tool_runner` / `ToolNodeRunner` | 工具辐条（法规/类案检索 → 引用卡，`event_key={turn_id}:r{round}:{tool_id}:0` 幂等） |
+| [memory_recall.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/memory_recall.py) | `make_memory_recall` | prepare 节点记忆召回（top5，fail-open） |
+| [web_decision.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/web_decision.py) | `make_web_context` / `WebContextProvider` | 联网前置决策（fail-open） |
+| [minutes.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/minutes.py) | `MinutesRunner` | 会商纪要生成 |
+| [conversation_store.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/conversation_store.py) | `ConversationStore` / `PgConversationStore` | 会话/消息存储协议 + PG 实现 |
+| [turn_store.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/turn_store.py) | `TurnStore` / `PgTurnStore` | 轮次状态存储协议 + PG 实现 |
+| [audit.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/audit.py) | `record_host_decision` | host 决策落库（fail-open） |
+| [speaker_notice.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/speaker_notice.py) | `make_speaker_notice` | 轮次发言分隔条（隐藏主持人身份） |
+| [production.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/production.py) | `build_production_injectables` / `get_collab_graph` | 生产接线：按 `state.case_type` 的 adapter 分派（同一张编译图服务所有模板） |
+| [templates/court.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/templates/court.py) | `build_court_host_advisor`、`court_scheduler`、`build_court_interaction_card`、`make_court_conclude_producer` | 庭审模板件（纯可注入函数，`build_court_wiring()` 统一装配） |
+
+> 关键约定：host/scheduler **对用户完全隐藏**；每轮发言由隐藏调度智能体排序；轮次状态机 + Postgres Checkpointer 支持中断/恢复/分支。
+
+#### 5.4.2 memory 用户长期记忆
+
+| 文件 | 核心类/函数 | 职责 |
+|------|------------|------|
+| [extractor.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/memory/extractor.py) | 抽取器 | 用 `MEMORY_EXTRACT_MODEL`（Flash）轻量抽取用户画像 |
+| [pipeline.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/memory/pipeline.py) | `ingest_turn` / `dispatch_memory_event` / `load_turn_transcript` | 记忆事件管线（消费侧入口） |
+| [store.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/memory/store.py) | `MemoryStore` | PG 权威 + Qdrant 向量；按 user_id 收敛；嵌入失败仅标 `failed` 不阻断；开关键 `legalmind:memory:enabled:{user_id}`；`SCOPES=user/case`、`STATUSES=active/archived` |
+
+> 开关关闭即「不读不写」；去重阈值 0.75、合并阈值 0.90 触发告警但不静默合并；召回失败 fail-open 返回空。
+
+#### 5.4.3 workflows 工作流（LangGraph 状态机）
 
 所有工作流通过 `build_*_workflow(heavy_llm, fast_llm)` 构建编译，采用「重型模型（Pro）做深度分析、快速模型（Flash）做检索/汇总」的双模型策略。
 
@@ -545,7 +692,7 @@ entry → route_by_task_type → review ───→ synthesize → END
 
 `task_type`：analyze / review / research / full（full 走全部三分支）。
 
-#### 5.4.2 agents 智能体技能
+#### 5.4.4 agents 智能体技能
 
 均为「构造时注入 LLM」的薄封装，提供异步方法 + 流式生成器。
 
@@ -561,6 +708,8 @@ entry → route_by_task_type → review ───→ synthesize → END
 | `ContractReviewer` | contract_reviewer.py | `review` | 合同审查（简版） |
 | `RegulatoryResearcher` | regulatory_researcher.py | `research` | 法规检索 |
 
+> 协同重构后，这些 Skill 通过**零侵入适配**接入协同图辐条（`collab/agent_nodes.py`）：将群组上下文块映射到既有流式方法参数，**不改动原有 persona 提示词**。`judge_skill.py` 新增 `build_collab_system_prompt` 分支。庭审裁决始终由法官智能体出具。
+
 **ContractReviewSkill 详解**（[contract_review_skill.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/agents/contract_review_skill.py)）:
 
 - **Playbook 体系** `CONTRACT_PLAYBOOKS`: 内置 12 类合同（买卖/租赁/借贷/劳动/服务/担保/知识产权/互联网/婚姻家事/房地产/建设工程/公司投资），每类定义必备条款、常见风险、关键法律
@@ -568,7 +717,7 @@ entry → route_by_task_type → review ───→ synthesize → END
 - 规则方法（静态）: `extract_clauses`（正则提取多格式中文条款）、`analyze_readability`、`detect_cross_references`、`check_playbook_compliance`
 - 输出校验: `_validate_scan_output`、`_compute_risk_level`、`_parse_json`
 
-#### 5.4.3 legal 法律检索层
+#### 5.4.5 legal 法律检索层
 
 | 文件 | 核心函数 | 职责 |
 |------|---------|------|
@@ -592,7 +741,7 @@ entry → route_by_task_type → review ───→ synthesize → END
 
 全链路多级降级：嵌入失败/无结果/过滤为空时均回退 `_keyword_fallback` 关键词检索。
 
-#### 5.4.4 OCR 服务：[ocr_service.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/ocr_service.py)
+#### 5.4.6 OCR 服务：[ocr_service.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/ocr_service.py)
 
 封装 PaddleOCR AIStudio **异步任务模式**（提交→轮询→下载 JSONL）。
 
@@ -607,39 +756,85 @@ Token 从 `settings.OCR_API_TOKEN` 读取；可选预处理参数（方向分类
 
 ---
 
+### 5.5 worker 后台进程
+
+独立进程（与 API 容器同镜像、不同启动命令）：`python -m app.worker.main --role collab|memory|doc`。
+
+| 文件 | 职责 |
+|------|------|
+| [worker/main.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/worker/main.py) | 角色入口；`:8001` 暴露 `/healthz`（不查依赖）、`/readyz`、`/metrics`；每 10s 发 Redis 心跳（实例 key TTL 30s + 滚动 ZSET `legalmind:workers:online`）；优雅停机即刻摘除心跳 |
+| [consumers/collab.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/worker/consumers/collab.py) | 消费 `collab-turns`（`consume_turns`，组 `legalmind-worker-collab`）；另跑 `orphan_scan_loop`（无论 Kafka 开关均运行），与消费器**共用同一 TurnRunner** |
+| [consumers/memory.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/worker/consumers/memory.py) | 消费 `memory-events` → `ingest_turn`；毒消息逐条隔离，重试耗尽路由 `memory-events-dlq` |
+| [consumers/doc.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/worker/consumers/doc.py) | 消费 `doc-tasks` → OCR；毒消息逐条隔离，重试耗尽路由 `doc-tasks-dlq` |
+
+> Kafka 关闭（`ENABLE_KAFKA=False`）时，协作/记忆/文档任务自动回退进程内执行，不阻断主业务流。
+
+---
+
 ## 6. 前端详解
 
 ### 6.1 路由与页面（App Router）
 
-根布局 [layout.tsx](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/layout.tsx) 用 `AuthGuard` 包裹全部路由，设置全局元信息。
+根布局 [layout.tsx](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/layout.tsx) 用 [AuthGuard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/AuthGuard.tsx) 包裹全部路由（`PUBLIC_PATHS=['/', '/login']`），设置全局元信息。
 
 | 路由 | 文件 | 职责 | 主要使用组件 |
 |------|------|------|------------|
-| `/` | page.tsx | 登录前首页（Hero/能力介绍）；已登录重定向 `/dashboard` | Hero3DScene、Disclaimer |
+| `/` | page.tsx | 登录前首页（Hero/能力介绍）；已登录重定向 `/messages` | Hero3DScene、Disclaimer |
 | `/login` | login/page.tsx | 登录/注册页 | LoginModal |
-| `/chat` | chat/page.tsx | 智能对话 | Sidebar、ChatInterface、RightPanel |
-| `/court` | court/page.tsx | 模拟法庭（1092 行，流程编排 + 多气泡渲染 + 补证交互） | JudgeVerdictCard |
+| `/messages` | messages/page.tsx | 消息中心（微信式三栏 IA：IconRail \| ConversationList \| ChatArea \| RightRail） | collab/*、NewConversationWizard、LegacyMigrationBanner |
+| `/search` | search/page.tsx | 案情搜索 / 知识库浏览 | search/*（IconRail） |
+| `/memory` | memory/page.tsx | 用户长期记忆（`?view=cases` 切换到案件视图 `CasesPane`） | memory/*（IconRail） |
 | `/documents` | documents/page.tsx | 合同审查（薄壳） | DocumentUpload |
-| `/knowledge` | knowledge/page.tsx | 知识库检索/浏览（729 行） | — |
-| `/cases` | cases/page.tsx | 案件列表管理（316 行） | — |
 | `/dashboard` | dashboard/page.tsx | 工作台（统计 + 最近案件 + 快速入口） | — |
+
+> 旧的 `/chat`、`/court`、`/knowledge`、`/cases` 页面**已物理删除**；[AuthGuard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/AuthGuard.tsx) 的 `LEGACY_ROUTE_MAP`（`/chat`→`/messages`、`/court`→`/messages?template=court`、`/dashboard`→`/messages`、`/knowledge`→`/search`、`/cases`→`/memory?view=cases`）负责重定向。全局导航由 [IconRail](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/collab/IconRail.tsx) 承载（消息中心/案情搜索/记忆/合同审查 4 项）。
 
 ### 6.2 组件层
 
+**协同组件** [components/collab/](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/collab)
+
+| 组件 | 职责 |
+|------|------|
+| `IconRail` | 最左全局图标栏（导航 + 当前用户 + 登出 + 记忆开关） |
+| `ConversationList` | 会话列表 |
+| `ChatArea` / `ConversationView` | 会话主区与消息流渲染 |
+| `MessageBubble` | 消息气泡（含引用卡/工具卡渲染） |
+| `RightRail` | 右栏：轮次时间线、「回到此轮」分支等 |
+| `NewConversationWizard` | 建群向导（模板成员仅支持追加） |
+| `InteractionCard` | 交互卡片（如庭审补证卡片） |
+| `LegacyMigrationBanner` | 旧 localStorage 会话迁移横幅 |
+| `Avatar` / `format.ts` | 头像与格式化工具 |
+
+**记忆组件** `components/memory/`：`MemoryList`、`MemoryDetail`、`MemoryEditor`、`CasesPane`（案件视图）。
+
+**搜索组件** `components/search/`：`SearchBar`、`SearchResults`、`KnowledgeBrowsePanel`、`ForwardDialog`（转发到已有会话）、`NewGroupFromQuoteDialog`（引用并新建协同群聊）。
+
+**通用/旧组件**
+
 | 组件 | 行数 | 职责 |
 |------|------|------|
-| [ChatInterface](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/ChatInterface.tsx) | 489 | 对话主界面：消息流、模型切换下拉、快捷问题、结构化回复渲染 |
-| [DocumentUpload](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/DocumentUpload.tsx) | 672 | 合同审查：拖拽/点选上传 → 取内容 → SSE 审查，三栏（条款树/原文/风险修订） |
+| [DocumentUpload](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/DocumentUpload.tsx) | 672 | 合同审查（前端 UI 不动）：拖拽/点选上传 → 取内容 → SSE 审查，三栏（条款树/原文/风险修订） |
+| [ChatInterface](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/ChatInterface.tsx) | 489 | 旧对话界面（保留，配合 useChatStore） |
 | [JudgeVerdictCard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/JudgeVerdictCard.tsx) | 710 | 庭审裁决卡片（KFE/证据/法条/各阶段气泡） |
 | [RightPanel](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/RightPanel.tsx) | 204 | 对话右栏：快捷提问、相关法条、风险警示、术语解释 |
 | [Sidebar](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/Sidebar.tsx) | 96 | 会话列表与导航 |
 | [Hero3DScene](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/Hero3DScene.tsx) | 149 | 首页 Three.js 3D 场景 |
 | [LoginModal](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/LoginModal.tsx) | 95 | 登录/注册弹窗 |
-| [AuthGuard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/AuthGuard.tsx) | 59 | 路由级登录守卫 |
+| [AuthGuard](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/AuthGuard.tsx) | 59 | 路由级登录守卫 + 旧路由重定向 |
 | [Disclaimer](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/components/Disclaimer.tsx) | 36 | 免责声明 |
 | HeroBackground | 11 | Hero 背景 |
 
-### 6.3 状态管理：[useChatStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useChatStore.ts)
+### 6.3 状态管理（5 个 Zustand Store）
+
+| Store | 行数 | 职责 |
+|-------|------|------|
+| [useChatStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useChatStore.ts) | 697 | 旧对话 store（保留）：消息流、多会话、登录态、右栏数据 |
+| [useCollabStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useCollabStore.ts) | 114 | 协同会话列表、Agent 模板目录、当前选中会话 |
+| [useCollabStreamStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useCollabStreamStore.ts) | 560 | 协同 SSE 流状态（含 `turnId` 定位当前轮次） |
+| [useMemoryStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useMemoryStore.ts) | 157 | 记忆列表/详情/编辑/开关 |
+| [useSearchStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useSearchStore.ts) | 76 | 统一搜索状态 |
+
+#### useChatStore（[useChatStore.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/store/useChatStore.ts)）
 
 Zustand 全局 store。
 
@@ -667,16 +862,25 @@ Zustand 全局 store。
 | `legalmind_chat_history` | 案件记忆 |
 | `legalmind_selected_model` | 模型偏好 |
 
-### 6.4 API 层：[api.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/api.ts)
+### 6.4 API / lib 层
+
+前端 `app/lib/` 下 6 个模块：
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| [http.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/http.ts) | 323 | 统一 HTTP 客户端：响应信封解包、401/429/502/503/504 退避重试 |
+| [api.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/api.ts) | 492 | 旧 API 封装（保留旧导出，内部转发 http.ts 符号） |
+| [collab.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/collab.ts) | 329 | 协同：会话/Agent/模板/SSE 票据/旧会话 import |
+| [sse.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/sse.ts) | 169 | 基于原生 `EventSource` 的自实现重连（`MAX_RETRIES=12`、退避封顶 8s、累计窗口约 71s） |
+| [memory.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/memory.ts) | 127 | 记忆 CRUD / 开关 |
+| [search.ts](file:///home/jing/Documents/trae_projects/LegalMind%20AI/frontend/app/lib/search.ts) | 187 | 统一搜索 |
 
 **凭证管理**: Token 存 `localStorage.legalmind_token`，用户名存 `legalmind_username`。
 
-**核心机制 — 通用 SSE 解析器** `parseSSEStream<T>`:
-- 通过 `response.body.getReader()` + `TextDecoder` 增量读取
-- 按 `event:` / `data:` 行解析，通过 `eventMap` 将事件名映射为强类型数据
-- 被 `chatStream` / `debateStream` / `contractReviewStream` 统一复用
+**旧 SSE 解析器（api.ts）** `parseSSEStream<T>`（合同审查等旧流式仍在用）：
+- 通过 `response.body.getReader()` + `TextDecoder` 增量读取，按 `event:` / `data:` 行解析，`eventMap` 映射为强类型数据
 
-**导出函数分组**:
+**api.ts 导出函数分组**:
 
 | 分组 | 函数 |
 |------|------|
@@ -691,6 +895,8 @@ Zustand 全局 store。
 | 系统 | `checkHealth` |
 
 **关键类型**: `ChatMessage`、`ModelOption`、`DashboardStats`、`DocumentItem`、`KnowledgeSearchResult`、`StructuredSummary`、`StructuredReviewData`，以及各流式事件联合类型（chunk/done/error/status/metadata）。
+
+> 协同 SSE 协议（v2）：`message_start` → `message_delta`(逐 token) → `message_end`，另含轮次生命周期与工具/卡片事件；前端 `useCollabStreamStore` 消费。流式失败支持约 70s 总重连窗口（可承受 30s 断网），「重试」按钮正确触发**流重连**而非重发消息。
 
 ---
 
@@ -709,20 +915,27 @@ Zustand 全局 store。
 | 仪表盘统计 | `legalmind:stats:{key}` |
 | 文档元信息 | `legalmind:docs:{id}`（Hash，含文件路径） |
 | LLM 缓存 | `legalmind:llm_cache:{key}`（TTL 1h） |
+| 会话最近消息 | `legalmind:conv:{id}:messages:recent`（List，`LTRIM` 20 / TTL 600s） |
+| 协作事件流 | `legalmind:conv:{id}:events`（Stream `MAXLEN` 500 + PubSub） |
+| 轮次锁 | `legalmind:lock:conv:{id}`（`SET NX PX 10min`） |
+| SSE 一次性票据 | `legalmind:sse_ticket:{ticket}`（TTL 60s） |
+| 记忆开关 | `legalmind:memory:enabled:{user_id}`（用户级，默认开） |
+| worker 心跳 | `legalmind:worker:{...}`（实例 key TTL 30s）+ `legalmind:workers:online`（ZSET） |
 
-### 7.2 PostgreSQL 三库
+### 7.2 PostgreSQL 四库
 
-见 [5.2.6](#526-postgresql-客户端pg_clientpy)。三库独立、各表均配可选向量列，schema 初始化见 [backend/sql/init/](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/sql/init)（4 个 SQL：建库 + 三库 schema）。
+见 [5.2.6](#526-postgresql-客户端pg_clientpy)。知识库三库（judge/lawyer/law）各表配可选向量列，独立 metadata `Base`；应用库 **legalmind_app** 使用独立 metadata `AppBase`（避免 pgvector 列跨库污染），存放会话/消息/成员/记忆/轮次/主持决策。schema 初始化见 [backend/sql/init/](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/sql/init)（6 个 SQL：建库 + 三知识库 schema + 应用库 schema + Agent/模板种子）。
 
-### 7.3 Qdrant 三 Collection
+### 7.3 Qdrant 四 Collection
 
-见 [5.2.7](#527-qdrant-客户端qdrant_clientpy)。向量 1024 维 / Cosine，payload 承载原文与元数据。
+见 [5.2.7](#527-qdrant-客户端qdrant_clientpy)。知识库三套 `judge_knowledge`/`lawyer_knowledge`/`law_knowledge` + 用户记忆 `user_memories`；向量 1024 维 / Cosine，payload 承载原文与元数据。
 
 ### 7.4 存储分工原则
 
-- **Redis**: 热数据、会话、队列、计数、短期缓存
-- **PostgreSQL/pgvector**: 结构化法律数据 + 关系型向量召回（可 SQL 过滤）
-- **Qdrant**: 专用向量检索主力（高性能 ANN + payload 过滤）
+- **Redis**: 热数据、会话热缓存、队列、轮次锁、SSE 票据、计数、短期缓存、worker 心跳
+- **PostgreSQL/pgvector**: 结构化法律数据（三知识库）+ 关系型向量召回（可 SQL 过滤）；应用数据独立存 `legalmind_app`
+- **Qdrant**: 专用向量检索主力（高性能 ANN + payload 过滤），含用户记忆向量
+- **Kafka**: 异步任务队列（collab-turns/memory-events/doc-tasks + 各自 DLQ）
 - 双向量库（PG + Qdrant）并行召回后去重，互为补充与兜底
 
 ---
@@ -734,38 +947,55 @@ Zustand 全局 store。
 ```
 main.py
   ├─ core.config（所有模块的基础）
+  ├─ core.response / errors（统一信封 + 错误码）
+  ├─ core.logging / tracing / metrics / health / resilience（横切：日志/追踪/指标/健康/韧性）
   ├─ core.redis_client ──► config
-  ├─ core.pg_client ──► config
+  ├─ core.pg_client（四库） ──► config
   ├─ core.qdrant_client ──► config
-  ├─ core.llm_client ──► config + redis_client
-  ├─ core.embedding / reranker ──► config
-  └─ routers.gateway
-       ├─ core.security / user_service / redis_client / llm_client
-       └─ services
-            ├─ workflows ──► agents + legal
-            │    ├─ agents ──► llm_client（提供的 BaseChatModel）
-            │    └─ legal
-            │         ├─ rag_retriever ──► embedding/qdrant/reranker/sparse/legal_filter
-            │         ├─ kfe_extractor / convergence / aux_nodes
-            │         └─ sparse_retriever ──► qdrant
-            └─ ocr_service ──► config（httpx 直连第三方）
+  ├─ core.llm_client ──► config + redis_client + resilience
+  ├─ core.events（Kafka EventBus）──── Kafka
+  ├─ core.checkpoint ──► pg_client（legalmind_app）
+  ├─ core.embedding / reranker / web_search ──► config
+  ├─ routers（gateway / conversations / collab / agents / memory / search）
+  │    ├─ core.security / user_service / redis_client / llm_client
+  │    └─ services
+  │         ├─ collab（LangGraph 星型图）
+  │         │    ├─ graph ──► host_skill / scheduler_skill / agent_nodes / tool_nodes
+  │         │    ├─ production ──► templates/court + memory_recall + web_decision
+  │         │    ├─ runner ──► conversation_store / turn_store / checkpoint
+  │         │    └─ registry / minutes / audit / speaker_notice
+  │         ├─ memory ──► extractor / pipeline / store（PG + Qdrant + embedding）
+  │         ├─ workflows ──► agents + legal
+  │         │    ├─ agents ──► llm_client（提供的 BaseChatModel）
+  │         │    └─ legal
+  │         │         ├─ rag_retriever ──► embedding/qdrant/reranker/sparse/legal_filter
+  │         │         ├─ kfe_extractor / convergence / aux_nodes
+  │         │         └─ sparse_retriever ──► qdrant
+  │         └─ ocr_service ──► config + resilience（httpx 直连第三方）
+  └─ worker（collab/memory/doc 消费器）──► core.events + services（collab / memory / ocr）
 ```
 
 ### 8.2 前后端接口契约
 
-前端经 `/api/*` 与后端交互;三类通信模式:
-1. **普通 JSON**: CRUD / 查询
-2. **multipart/form-data**: 文件上传
-3. **SSE**: 流式对话 / 审查 / 辩论（事件:status/message/metadata/done/error）
+前端经 `/api/*` 与后端交互；通信模式：
+
+1. **统一信封 JSON**: 除 SSE 外所有响应均为 `{success, data|error}`（`EnvelopeRouter` 产出，`LegacyEnvelopeMiddleware` 兼容旧约定）
+2. **multipart/form-data**: 文件上传（文档/OCR）
+3. **SSE（协同 v2）**: `/api/collab/conversations/{id}/events` 需先取一次性票据；事件 `message_start` / `message_delta` / `message_end` + 轮次/工具/卡片事件，支持 `Last-Event-ID` 回放
+4. **SSE（旧）**: 合同审查等仍走 `status/message/metadata/done/error`
+5. **异步任务**: 协同/记忆/文档任务经 Kafka（`ENABLE_KAFKA` 关时进程内）
 
 ### 8.3 外部服务依赖
 
 | 服务 | 用途 | 凭据配置 |
 |------|------|---------|
-| DeepSeek Cloud API | 云端大模型 | `DEEPSEEK_API_KEY` |
-| LiteLLM Proxy | 模型网关（可选） | `LITELLM_VIRTUAL_KEY` |
+| DeepSeek Cloud API | 云端大模型 / 联网检索 | `DEEPSEEK_API_KEY`（仅 LiteLLM 内部持有） |
+| LiteLLM Proxy | 模型网关（唯一 LLM 出海口） | `LITELLM_VIRTUAL_KEY` |
 | 本地模型服务 | 法律微调模型 | `LOCAL_LLM_API_BASE` |
 | PaddleOCR AIStudio | 图片 OCR | `OCR_API_TOKEN` |
+| Kafka（KRaft） | 异步任务队列 | `KAFKA_BOOTSTRAP_SERVERS` |
+| Jaeger | 分布式追踪后端（OTel OTLP） | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Prometheus / Grafana | 指标采集与看板 | observability profile |
 
 ---
 
@@ -775,7 +1005,9 @@ main.py
 
 ### 9.1 方式一：Docker Compose 完整部署（推荐）
 
-根目录 [docker-compose.yml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docker-compose.yml) 编排 7 个服务:redis / postgres / qdrant / litellm-db / litellm / fastapi / frontend。
+根目录 [docker-compose.yml](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docker-compose.yml) 编排 **11+ 个服务**：redis / postgres(pgvector:pg16，挂 `backend/sql/init` 四库初始化) / qdrant(v1.9.0) / litellm-db / jaeger(all-in-one:1.60，:16686/:4317) / kafka(apache/kafka:3.7.2 KRaft，:9092) / kafka-init（建 3 topic：collab-turns、memory-events、doc-tasks，各 3 partition）/ litellm(:4000) / fastapi(:8000) / **worker-collab / worker-memory / worker-doc**（同镜像不同 `--role`，:8001）/ frontend(:3000)。
+
+启用 `observability` profile 会额外拉起 **prometheus(:9090)** 与 **grafana(:3001)**（预置 QPS/P95/错误率/重试/熔断/lag/心跳看板）。
 
 ```bash
 # 1. 准备环境变量（.env 已配置，含 API Key，不入 git）
@@ -800,8 +1032,17 @@ docker compose down
 | 后端 API | http://localhost:8000 |
 | API 文档（Swagger） | http://localhost:8000/docs |
 | 健康检查 | http://localhost:8000/health |
+| 存活/就绪探针 | http://localhost:8000/healthz、http://localhost:8000/readyz |
 | Prometheus 指标 | http://localhost:8000/metrics |
+| worker 健康 | http://localhost:8001/healthz（各 worker 容器） |
 | LiteLLM | http://localhost:4000 |
+| Jaeger UI | http://localhost:16686 |
+| Grafana / Prometheus | http://localhost:3001、http://localhost:9090（需启用 observability profile） |
+
+```bash
+# 启用可观测性组件（Prometheus + Grafana）
+docker compose --profile observability up -d
+```
 
 ### 9.2 方式二：本地开发运行
 
@@ -814,6 +1055,15 @@ pip install -r requirements.txt
 
 # 需先启动 Redis / PostgreSQL / Qdrant（可单独 docker compose up -d redis postgres qdrant）
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**后台 worker（可选，需 Kafka；`ENABLE_KAFKA=False` 时任务回退进程内，无需 worker）**:
+
+```bash
+cd backend
+python -m app.worker.main --role collab   # 消费 collab-turns + 孤儿扫描
+python -m app.worker.main --role memory   # 消费 memory-events
+python -m app.worker.main --role doc      # 消费 doc-tasks
 ```
 
 **前端**:
@@ -858,9 +1108,18 @@ npm run dev          # http://localhost:3000
 | **模型 Fallback** | 所选模型不可用时自动切换 `deepseek-flash`，并通过 SSE `status` 事件通知前端 |
 | **RAG 注入** | 检索内容作为**独立 system 消息**注入，不覆盖系统提示词（避免被带偏） |
 | **异步任务** | Redis 队列 + 状态机；工具调用幂等（唯一 `call_id`）+ 超时熔断 |
-| **LLM 路由** | `legalmind-ft` 走本地，配置 Proxy 走 LiteLLM，其余直连 DeepSeek |
-| **流式渲染** | 前端用 requestAnimationFrame 节流，每帧最多更新一次 DOM |
-| **监控** | 关键接口暴露 Prometheus 指标；内存/显存高占用自动回收限流 |
+| **LLM 路由** | `legalmind-ft` 走本地，配置 Proxy 走 LiteLLM，其余直连 DeepSeek（生产一律经 LiteLLM，后端不直持密钥） |
+| **统一响应信封** | 除 SSE 外一律 `{success, data\|error}`；错误用 `ErrorCode` 枚举（如 50901 轮次锁冲突、50310 Kafka 降级）；`LegacyEnvelopeMiddleware` 兼容旧前端 |
+| **请求追踪** | 最外层 `RequestContextMiddleware` 注入 request-id 并绑定 structlog；OpenTelemetry **常开**，OTLP 上报 Jaeger |
+| **韧性** | 统一经 `core/resilience.py`：per-service Redis 熔断器（fail-open）、重试/超时/降级；流式重试仅限首字节前 |
+| **Kafka 降级** | `ENABLE_KAFKA` 开关；EventBus 懒连、发送失败不抛异常；worker 独立进程 + Redis 心跳；Kafka 关闭时协作/记忆/文档任务回退进程内 |
+| **协同 SSE 协议** | 一次性票据换取事件流；SSE v2 逐 token（`message_start/delta/end`）+ `Last-Event-ID` 回放；重连约 70s 窗口、重试按钮触发流重连 |
+| **幂等与隔离** | 群聊消息 `event_key` 唯一 + `ON CONFLICT DO NOTHING`；工具卡 `event_key={turn_id}:r{round}:{tool_id}:0`；各 worker 毒消息逐条隔离，重试耗尽进 DLQ |
+| **主机/调度隐藏** | 主持人（host）与调度智能体（scheduler）**对用户完全隐藏**；用户仅见「下面是——发言」中性分隔条；裁决由法官智能体出具 |
+| **应用库隔离** | 应用库 `legalmind_app` 用独立 metadata `AppBase`，与知识库 `Base` 分离，规避跨库 pgvector 列污染 |
+| **记忆开关** | 每用户 Redis 开关 `legalmind:memory:enabled:{user_id}`，默认开；关闭即不读不写；抽取用 Flash 模型 |
+| **流式渲染** | 前端用 requestAnimationFrame 节流，每帧最多更新一次 DOM；协同流状态由 `useCollabStreamStore` 管理 |
+| **监控** | 关键接口暴露 Prometheus 指标（低基数标签）；内存/显存高占用自动回收限流；健康检查严格区分 `/healthz`（不查依赖）与 `/readyz`（聚合并行依赖） |
 
 ---
 
@@ -868,12 +1127,15 @@ npm run dev          # http://localhost:3000
 
 | 事项 | 状态 | 说明 |
 |------|------|------|
-| **n8n 编排** | 🔶 规划中 | [orchestration/n8n/](file:///home/jing/Documents/trae_projects/LegalMind%20AI/orchestration) 目录已建但为空;规划以队列模式（`EXECUTIONS_MODE=queue`）接入多 Worker |
-| **docs 文档** | 🔶 占位 | `docs/` 下 `api-reference.md`、`architecture.md`、`deployment.md` 当前为空文件 |
-| **PaddleOCR 字段** | ⚠️ 待验证 | OCR JSONL 文本字段采用多名称 fallback;首次接入建议以真实响应核对字段 |
+| **多智能体协同重构（P0–P4）** | ✅ 已完成 | 星型协同图（隐藏 host/scheduler）、轮次状态机 + checkpoint/fork、接管式扮演（my_role）、会商纪要、引用卡、联网检索、长期记忆、四路统一搜索、Harness 横切、可观测性 |
+| **异步任务编排** | ✅ 已落地 | 早期 n8n 规划**已被取代**：改用 Kafka KRaft（apache/kafka:3.7.2）+ 三个独立 worker（collab/memory/doc），[orchestration/n8n/](file:///home/jing/Documents/trae_projects/LegalMind%20AI/orchestration) 目录保留但不再使用 |
+| **旧端点收敛** | ✅ 已标记 | `/api/chat`、`/api/chat/stream`、`/api/agents/run`、`/api/agents/stream`、`/api/debate/*` 已标 `deprecated=True`；`LEGACY_RESPONSE` 开关已删除。合同审查端点未废弃（前端仍用） |
+| **docs 文档** | ✅ 已补齐 | [docs/collab-implementation_plan.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/collab-implementation_plan.md) 为权威事实来源；[api-reference.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/api-reference.md) / [architecture.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/architecture.md) / [deployment.md](file:///home/jing/Documents/trae_projects/LegalMind%20AI/docs/deployment.md) 已按当前代码事实写完 |
+| **PaddleOCR 字段** | ⚠️ 待验证 | OCR JSONL 文本字段采用多名称 fallback；首次接入建议以真实响应核对字段 |
 | **多页扫描 PDF** | ⚠️ 性能 | 逐页 OCR 耗时可能较长，已用 300s 超时兜底 + 临时文件即时清理 |
 | LiteLLM 模型 | ✅ 已配置 | 注册 Pro/Flash 双模型，含双向 fallback、Redis 缓存、预算控制 |
+| Kafka / 可观测性 | ✅ 已配置 | KRaft 无 Zookeeper；Jaeger + OTel 常开；Prometheus + Grafana 经 observability profile 拉起 |
 
 ---
 
-> 本 Wiki 随代码迭代持续维护。如需定位具体实现，可优先从 [main.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/main.py)（启动主线）、[gateway.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/gateway.py)（接口全景）、[rag_retriever.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/legal/rag_retriever.py)（检索链路）三个入口入手。
+> 本 Wiki 随代码迭代持续维护。如需定位具体实现，可优先从 [main.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/main.py)（启动主线）、[collab.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/routers/collab.py) + [services/collab/production.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/collab/production.py)（协同 SSE 与图接线）、[rag_retriever.py](file:///home/jing/Documents/trae_projects/LegalMind%20AI/backend/app/services/legal/rag_retriever.py)（检索链路）三个入口入手。

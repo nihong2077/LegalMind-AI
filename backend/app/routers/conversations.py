@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import Depends, Query
@@ -33,6 +34,7 @@ from ..core.redis_client import (
 from ..core.response import EnvelopeRouter, success
 from ..core.security import get_current_user
 from ..services.collab.conversation_store import (
+    DEFAULT_DIRECT_AGENT,
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     ConversationStore,
@@ -142,6 +144,31 @@ class ForwardMessageRequest(BaseModel):
     content: str = Field(default="", max_length=4000)
 
 
+class ImportMessageItem(BaseModel):
+    """旧本地会话的历史消息（T4.2 迁移用；不触发轮次）。
+
+    字段对齐旧 localStorage 形状：``role`` ∈ user/assistant、``content`` 正文、
+    ``ts`` 原始 ISO 时间戳（可缺省，缺省时按导入时刻落库）。
+    """
+    role: str = Field(default="user")
+    content: str = Field(default="")
+    ts: Optional[str] = None
+
+
+class ImportConversationRequest(BaseModel):
+    """把 localStorage 旧会话一次性导入为服务端 direct 历史（T4.2）。
+
+    仅承载「导入历史」语义：非空校验、条数/长度上限在 handler 内统一做（40001）。
+    """
+    title: Optional[str] = Field(default=None, max_length=256)
+    target_agent_id: Optional[str] = Field(default=None, max_length=64)
+    messages: list[ImportMessageItem] = Field(default_factory=list)
+
+
+MAX_IMPORT_MESSAGES = 200
+MAX_IMPORT_CONTENT_LEN = 4000
+
+
 # ============================================================
 # 事件辅助
 # ============================================================
@@ -227,6 +254,88 @@ async def create_conversation(
         target_agent_id=body.target_agent_id,
     )
     return success(conversation, message="会话已创建")
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    """把前端传来的 ISO 时间戳解析为带时区的 datetime；非法/缺失返回 None（落库走 now()）。"""
+    if not value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+@router.post("/import", status_code=201)
+async def import_conversation(
+    body: ImportConversationRequest,
+    store: ConversationStore = Depends(get_store),
+    uid: str = Depends(get_uid),
+):
+    """把旧本地（localStorage）会话一次性迁移为服务端 direct 历史（T4.2）。
+
+    与 ``send_message`` 的关键差异：**不起新轮次**。逐条按原始时间戳落库 + 进热缓存
+    + SSE 广播，使旧会话在消息中心可见、可继续续聊（沿用 forward 的落库范式）。
+    """
+    if not body.messages:
+        raise InvalidParamsError("导入消息不能为空")
+    if len(body.messages) > MAX_IMPORT_MESSAGES:
+        raise InvalidParamsError(f"单次导入消息不得超过 {MAX_IMPORT_MESSAGES} 条")
+    for item in body.messages:
+        if item.role not in ("user", "assistant"):
+            raise InvalidParamsError("消息角色仅支持 user/assistant")
+        if not item.content.strip():
+            raise InvalidParamsError("导入消息内容不能为空")
+        if len(item.content) > MAX_IMPORT_CONTENT_LEN:
+            raise InvalidParamsError(f"单条导入消息内容不得超过 {MAX_IMPORT_CONTENT_LEN} 字")
+
+    target_agent_id = body.target_agent_id or DEFAULT_DIRECT_AGENT
+    agent = await store.get_agent(target_agent_id)
+    if agent is None or not agent.get("enabled"):
+        raise InvalidParamsError(f"Agent 不存在或已停用：{target_agent_id}")
+    agent_name = agent.get("name") or target_agent_id
+
+    conversation = await store.create_conversation(
+        user_id=uid,
+        conv_type="direct",
+        case_type=None,
+        title=body.title,
+        extra_agent_ids=[],
+        target_agent_id=target_agent_id,
+    )
+    conversation_id = conversation["id"]
+
+    imported = 0
+    for item in body.messages:
+        if item.role == "user":
+            sender_type, sender_id, sender_name = "user", uid, uid
+        else:
+            sender_type, sender_id, sender_name = "agent", target_agent_id, agent_name
+        message = await store.insert_message(
+            conversation_id,
+            sender_type=sender_type,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=item.content,
+            msg_type="text",
+            round=0,
+            metadata={"imported": True},
+            created_at=_parse_ts(item.ts),
+        )
+        await push_recent_message(conversation_id, message)
+        await _emit_message(conversation_id, message)
+        imported += 1
+
+    return success(
+        {"conversation": conversation, "imported": imported},
+        message="旧会话已导入",
+    )
 
 
 @router.get("/{conversation_id}")

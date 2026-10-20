@@ -143,6 +143,31 @@ export async function createConversation(body: CreateConversationBody): Promise<
   return request<Conversation>('/api/conversations', { method: 'POST', body })
 }
 
+/** 旧本地会话导入请求体（POST /api/conversations/import，T4.2） */
+export interface ImportConversationBody {
+  /** 旧会话标题 */
+  title?: string
+  /** 目标 Agent（缺省 general_assistant）；历史里的 assistant 消息归到该 Agent 名下 */
+  target_agent_id?: string
+  messages: { role: 'user' | 'assistant'; content: string; ts?: string }[]
+}
+
+/** 导入响应：新建的 direct 会话与成功导入的消息条数 */
+export interface ImportConversationResult {
+  conversation: Conversation
+  imported: number
+}
+
+/** 把旧 localStorage 会话导入为服务端 direct 历史；不触发轮次 */
+export async function importConversation(
+  body: ImportConversationBody,
+): Promise<ImportConversationResult> {
+  return request<ImportConversationResult>('/api/conversations/import', {
+    method: 'POST',
+    body,
+  })
+}
+
 /** 设置 / 撤销用户扮演角色（仅群聊；null ＝不扮演＝交还给 AI），返回最新会话 */
 export async function setMyRole(
   conversationId: string,
